@@ -877,6 +877,12 @@ build_ssh_opts() {
 build_rsync_ssh_transport() {
   local -a opts=()
   mapfile -t opts < <(build_ssh_opts)
+  # IFS is $'\n\t' globally (see top of file), so "${opts[*]}" would join on
+  # a newline rather than a space here. rsync's own -e parser splits its
+  # argument on literal spaces only, so a newline-joined string collapses
+  # into one glued argv element when it reaches ssh -- silently dropping or
+  # mangling every -o option after the first. Force a space join locally.
+  local IFS=' '
   printf 'ssh %s' "${opts[*]}"
 }
 
@@ -909,7 +915,7 @@ check_connection() {
     log_error "cannot connect to '$REMOTE'."
     log_error "Checks: host reachable? key loaded (ssh-add -l)? BatchMode forbids prompts,"
     log_error "so password-only auth will fail -- set up key auth or an ssh-agent."
-    log_error "Reproduce manually:  ssh ${opts[*]} $REMOTE true"
+    log_error "Reproduce manually:  ssh $(IFS=' '; echo "${opts[*]}") $REMOTE true"
     exit "$EX_CONN"
   fi
   log_debug "ssh connection ok"
@@ -1499,7 +1505,14 @@ do_push() {
 }
 
 # Pre-flight change estimate, used by MAX_CHANGES_PER_CYCLE. Runs a dry-run
-# pull purely to count, before anything is actually modified.
+# of whichever direction(s) this cycle will actually perform, purely to
+# count, before anything is actually modified.
+#
+# NOTE: this used to always dry-run the pull only, regardless of $DIRECTION.
+# That meant --push-only cycles were never gated by MAX_CHANGES_PER_CYCLE at
+# all (the wrong direction was measured), and --pull-only cycles paid for an
+# extra, redundant dry-run pull. Both directions are now measured (only the
+# ones this cycle will run) and summed.
 estimate_changes() {
   (( MAX_CHANGES_PER_CYCLE == 0 )) && return 0
 
@@ -1507,15 +1520,25 @@ estimate_changes() {
   local saved_dry="$DRY_RUN"
   DRY_RUN="true"
 
-  local -a common=() filters=() popts=()
+  local -a common=() filters=()
   mapfile -t common  < <(build_common_opts)
   mapfile -t filters < <(build_filter_opts)
-  mapfile -t popts   < <(build_pull_opts)
 
-  local out total
-  out="$(rsync "${common[@]}" "${filters[@]}" "${popts[@]}" \
-         "$(remote_endpoint)" "$(local_endpoint)" 2>/dev/null)" || true
-  total="$(count_itemized_changes "$out")"
+  local out total=0
+  if [[ "$DIRECTION" == "both" || "$DIRECTION" == "pull" ]]; then
+    local -a popts=()
+    mapfile -t popts < <(build_pull_opts)
+    out="$(rsync "${common[@]}" "${filters[@]}" "${popts[@]}" \
+           "$(remote_endpoint)" "$(local_endpoint)" 2>/dev/null)" || true
+    (( total += $(count_itemized_changes "$out") ))
+  fi
+  if [[ "$DIRECTION" == "both" || "$DIRECTION" == "push" ]]; then
+    local -a pushopts=()
+    mapfile -t pushopts < <(build_push_opts)
+    out="$(rsync "${common[@]}" "${filters[@]}" "${pushopts[@]}" \
+           "$(local_endpoint)" "$(remote_endpoint)" 2>/dev/null)" || true
+    (( total += $(count_itemized_changes "$out") ))
+  fi
 
   DRY_RUN="$saved_dry"
 
@@ -1892,7 +1915,8 @@ start_periodic_watcher() {
   ) &
 
   local pid=$!
-
+  WATCHER_PIDS+=("$pid")
+  log_info "periodic full-sync watcher started (pid $pid, every ${PERIODIC_FULL_SYNC}s)"
 }
 
 # =============================================================================
