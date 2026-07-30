@@ -167,27 +167,26 @@ LOG_MAX_KB="5120"
 DRY_RUN="false"
 
 # --- runtime state (not user-configurable) ---------------------------------
-LOCAL_DIR=""              # resolved sync root (dir containing sync.conf)
-CONF_FILE=""              # resolved path to sync.conf
-STATE_DIR=""              # $LOCAL_DIR/.sync
-LOG_PATH=""               # absolute log path
-LOCK_FILE=""              # flock target
-SENTINEL_PATH=""          # local sentinel
-DELETE_JOURNAL=""         # observed local deletions
-SSH_CONTROL_PATH=""       # ControlMaster socket template
+LOCAL_DIR=""        # resolved sync root (dir containing sync.conf)
+CONF_FILE=""        # resolved path to sync.conf
+STATE_DIR=""        # $LOCAL_DIR/.sync
+LOG_PATH=""         # absolute log path
+LOCK_FILE=""        # flock target
+SENTINEL_PATH=""    # local sentinel
+DELETE_JOURNAL=""   # observed local deletions
+SSH_CONTROL_PATH="" # ControlMaster socket template
 
-MODE="watch"              # watch | once | check
-DIRECTION="both"          # both | pull | push
+MODE="watch"     # watch | once | check
+DIRECTION="both" # both | pull | push
 FORCE_FIRST_RUN="false"
 VERBOSE="false"
-CLI_DRY_RUN=""            # set by --dry-run, overrides config
-CLI_DIR=""                # set by --dir
+CLI_DRY_RUN="" # set by --dry-run, overrides config
+CLI_DIR=""     # set by --dir
 
-RUN_TS=""                 # timestamp for this run's trash/conflict dirs
-WATCHER_PIDS=()           # background inotify/poll pids, killed on exit
-EVENT_FIFO=""             # watcher -> main loop event channel
+RUN_TS=""       # timestamp for this run's trash/conflict dirs
+WATCHER_PIDS=() # background inotify/poll pids, killed on exit
+EVENT_FIFO=""   # watcher -> main loop event channel
 SHUTTING_DOWN="false"
-
 
 # =============================================================================
 #  SECTION 2 -- LOGGING
@@ -201,10 +200,10 @@ SHUTTING_DOWN="false"
 _log_level_num() {
   case "$1" in
     error) echo 0 ;;
-    warn)  echo 1 ;;
-    info)  echo 2 ;;
+    warn) echo 1 ;;
+    info) echo 2 ;;
     debug) echo 3 ;;
-    *)     echo 2 ;;
+    *) echo 2 ;;
   esac
 }
 
@@ -221,48 +220,50 @@ else
 fi
 
 _log() {
-  local level="$1"; shift
+  local level="$1"
+  shift
   local msg="$*"
 
   # Drop anything more verbose than the configured level.
-  (( $(_log_level_num "$level") > $(_log_level_num "$LOG_LEVEL") )) && return 0
+  (($(_log_level_num "$level") > $(_log_level_num "$LOG_LEVEL"))) && return 0
 
   local ts colour
   ts="$(date '+%Y-%m-%d %H:%M:%S')"
   case "$level" in
     error) colour="$C_RED" ;;
-    warn)  colour="$C_YELLOW" ;;
-    info)  colour="$C_BLUE" ;;
+    warn) colour="$C_YELLOW" ;;
+    info) colour="$C_BLUE" ;;
     debug) colour="$C_GREY" ;;
-    *)     colour="" ;;
+    *) colour="" ;;
   esac
 
   printf '%s%s [%-5s]%s %s\n' \
     "$colour" "$ts" "$level" "$C_RESET" "$msg" >&2
 
   # Plain (uncoloured) copy to the log file when we have one.
-  if [[ -n "$LOG_PATH" && -w "${LOG_PATH%/*}" ]]; then
-    printf '%s [%-5s] %s\n' "$ts" "$level" "$msg" >>"$LOG_PATH" 2>/dev/null || true
+  if [[ -n $LOG_PATH && -w ${LOG_PATH%/*} ]]; then
+    printf '%s [%-5s] %s\n' "$ts" "$level" "$msg" >> "$LOG_PATH" 2> /dev/null || true
   fi
 }
 
 log_error() { _log error "$@"; }
-log_warn()  { _log warn  "$@"; }
-log_info()  { _log info  "$@"; }
+log_warn() { _log warn "$@"; }
+log_info() { _log info "$@"; }
 log_debug() { _log debug "$@"; }
 
 # Success line: always shown (it is an info-level event people look for).
 log_ok() {
   printf '%s%s [ ok  ]%s %s\n' \
     "$C_GREEN" "$(date '+%Y-%m-%d %H:%M:%S')" "$C_RESET" "$*" >&2
-  [[ -n "$LOG_PATH" && -w "${LOG_PATH%/*}" ]] &&
-    printf '%s [ ok  ] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >>"$LOG_PATH" 2>/dev/null || true
+  [[ -n $LOG_PATH && -w ${LOG_PATH%/*} ]] &&
+    printf '%s [ ok  ] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_PATH" 2> /dev/null || true
   return 0
 }
 
 # Log, then exit with a specific code.
 die() {
-  local code="$1"; shift
+  local code="$1"
+  shift
   log_error "$*"
   exit "$code"
 }
@@ -270,15 +271,15 @@ die() {
 # Truncate the log when it outgrows LOG_MAX_KB, keeping the newer half so
 # recent history survives. Single generation, no external logrotate needed.
 rotate_log_if_needed() {
-  [[ -n "$LOG_PATH" && -f "$LOG_PATH" ]] || return 0
-  [[ "$LOG_MAX_KB" =~ ^[0-9]+$ ]] || return 0
-  (( LOG_MAX_KB == 0 )) && return 0
+  [[ -n $LOG_PATH && -f $LOG_PATH ]] || return 0
+  [[ $LOG_MAX_KB =~ ^[0-9]+$ ]] || return 0
+  ((LOG_MAX_KB == 0)) && return 0
 
   local size_kb
-  size_kb=$(( $(stat -c %s "$LOG_PATH" 2>/dev/null || echo 0) / 1024 ))
-  if (( size_kb > LOG_MAX_KB )); then
-    mv -f "$LOG_PATH" "${LOG_PATH}.1" 2>/dev/null || return 0
-    : >"$LOG_PATH"
+  size_kb=$(($(stat -c %s "$LOG_PATH" 2> /dev/null || echo 0) / 1024))
+  if ((size_kb > LOG_MAX_KB)); then
+    mv -f "$LOG_PATH" "${LOG_PATH}.1" 2> /dev/null || return 0
+    : > "$LOG_PATH"
     log_info "log rotated at ${size_kb}KB (previous kept as ${LOG_PATH##*/}.1)"
 
   fi
@@ -289,7 +290,7 @@ rotate_log_if_needed() {
 # =============================================================================
 
 usage() {
-  cat <<EOF
+  cat << EOF
 $SCRIPT_NAME $SCRIPT_VERSION -- bidirectional rsync + inotify sync over ssh
 
 USAGE
@@ -327,27 +328,71 @@ EOF
 }
 
 parse_args() {
-  while (( $# )); do
+  while (($#)); do
     case "$1" in
-      -d|--dir)
-        [[ -n "${2:-}" ]] || die "$EX_CONFIG" "--dir requires a path"
-        CLI_DIR="$2"; shift 2 ;;
-      -c|--config)
-        [[ -n "${2:-}" ]] || die "$EX_CONFIG" "--config requires a path"
-        CONF_FILE="$2"; shift 2 ;;
-      -1|--once)     MODE="once"; shift ;;
-      --check)       MODE="check"; shift ;;
-      -n|--dry-run)  CLI_DRY_RUN="true"; shift ;;
-      --pull-only)   DIRECTION="pull"; shift ;;
-      --push-only)   DIRECTION="push"; shift ;;
-      --force-first-run) FORCE_FIRST_RUN="true"; shift ;;
-      -v|--verbose)  VERBOSE="true"; LOG_LEVEL="debug"; shift ;;
-      -q|--quiet)    LOG_LEVEL="error"; shift ;;
-      -h|--help)     usage; exit "$EX_OK" ;;
-      -V|--version)  printf '%s %s\n' "$SCRIPT_NAME" "$SCRIPT_VERSION"; exit "$EX_OK" ;;
-      --)            shift; break ;;
-      -*)            usage >&2; die "$EX_CONFIG" "unknown option: $1" ;;
-      *)             usage >&2; die "$EX_CONFIG" "unexpected argument: $1" ;;
+      -d | --dir)
+        [[ -n ${2:-} ]] || die "$EX_CONFIG" "--dir requires a path"
+        CLI_DIR="$2"
+        shift 2
+        ;;
+      -c | --config)
+        [[ -n ${2:-} ]] || die "$EX_CONFIG" "--config requires a path"
+        CONF_FILE="$2"
+        shift 2
+        ;;
+      -1 | --once)
+        MODE="once"
+        shift
+        ;;
+      --check)
+        MODE="check"
+        shift
+        ;;
+      -n | --dry-run)
+        CLI_DRY_RUN="true"
+        shift
+        ;;
+      --pull-only)
+        DIRECTION="pull"
+        shift
+        ;;
+      --push-only)
+        DIRECTION="push"
+        shift
+        ;;
+      --force-first-run)
+        FORCE_FIRST_RUN="true"
+        shift
+        ;;
+      -v | --verbose)
+        VERBOSE="true"
+        LOG_LEVEL="debug"
+        shift
+        ;;
+      -q | --quiet)
+        LOG_LEVEL="error"
+        shift
+        ;;
+      -h | --help)
+        usage
+        exit "$EX_OK"
+        ;;
+      -V | --version)
+        printf '%s %s\n' "$SCRIPT_NAME" "$SCRIPT_VERSION"
+        exit "$EX_OK"
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        usage >&2
+        die "$EX_CONFIG" "unknown option: $1"
+        ;;
+      *)
+        usage >&2
+        die "$EX_CONFIG" "unexpected argument: $1"
+        ;;
     esac
   done
 
@@ -365,22 +410,25 @@ parse_args() {
 # stray config in $HOME cannot be picked up from an unrelated deep path.
 find_config_upward() {
   local dir="$1"
-  dir="$(cd "$dir" 2>/dev/null && pwd -P)" || return 1
-  while [[ -n "$dir" && "$dir" != "/" ]]; do
+  dir="$(cd "$dir" 2> /dev/null && pwd -P)" || return 1
+  while [[ -n $dir && $dir != "/" ]]; do
     if [[ -f "$dir/$CONF_NAME" ]]; then
       printf '%s\n' "$dir/$CONF_NAME"
       return 0
     fi
     dir="${dir%/*}"
   done
-  [[ -f "/$CONF_NAME" ]] && { printf '%s\n' "/$CONF_NAME"; return 0; }
+  [[ -f "/$CONF_NAME" ]] && {
+    printf '%s\n' "/$CONF_NAME"
+    return 0
+  }
   return 1
 }
 
 resolve_config() {
   # 1. --config PATH wins outright; the root is that file's directory.
-  if [[ -n "$CONF_FILE" ]]; then
-    [[ -f "$CONF_FILE" ]] || die "$EX_CONFIG" "config not found: $CONF_FILE"
+  if [[ -n $CONF_FILE ]]; then
+    [[ -f $CONF_FILE ]] || die "$EX_CONFIG" "config not found: $CONF_FILE"
     CONF_FILE="$(realpath -- "$CONF_FILE")"
     LOCAL_DIR="${CONF_FILE%/*}"
     return 0
@@ -388,16 +436,16 @@ resolve_config() {
 
   # 2. --dir PATH, or 3. $RSYNC_SYNC_DIR: config must sit directly inside.
   local candidate=""
-  [[ -n "$CLI_DIR" ]] && candidate="$CLI_DIR"
-  [[ -z "$candidate" && -n "${RSYNC_SYNC_DIR:-}" ]] && candidate="${RSYNC_SYNC_DIR}"
+  [[ -n $CLI_DIR ]] && candidate="$CLI_DIR"
+  [[ -z $candidate && -n ${RSYNC_SYNC_DIR:-} ]] && candidate="${RSYNC_SYNC_DIR}"
 
-  if [[ -n "$candidate" ]]; then
+  if [[ -n $candidate ]]; then
     # Expand a leading ~ that arrived quoted from a shell or unit file.
-    [[ "$candidate" == "~"* ]] && candidate="${HOME}${candidate#\~}"
-    [[ -d "$candidate" ]] || die "$EX_CONFIG" "sync root is not a directory: $candidate"
+    [[ $candidate == "~"* ]] && candidate="${HOME}${candidate#\~}"
+    [[ -d $candidate ]] || die "$EX_CONFIG" "sync root is not a directory: $candidate"
     LOCAL_DIR="$(realpath -- "$candidate")"
     CONF_FILE="$LOCAL_DIR/$CONF_NAME"
-    [[ -f "$CONF_FILE" ]] || die "$EX_CONFIG" \
+    [[ -f $CONF_FILE ]] || die "$EX_CONFIG" \
       "no $CONF_NAME in $LOCAL_DIR -- copy sync.conf.example there and edit it"
     return 0
   fi
@@ -421,14 +469,14 @@ Or create one from the template:         cp sync.conf.example /path/to/folder/$C
 load_config() {
   log_debug "loading config: $CONF_FILE"
 
-  bash -n "$CONF_FILE" 2>/dev/null ||
+  bash -n "$CONF_FILE" 2> /dev/null ||
     die "$EX_CONFIG" "syntax error in $CONF_FILE (check with: bash -n '$CONF_FILE')"
 
   # Refuse a world-writable config: it is sourced as code, so anyone who can
   # write it can run arbitrary commands as this user.
   local perms
-  perms="$(stat -c %a "$CONF_FILE" 2>/dev/null || echo 000)"
-  if [[ "${perms: -1}" =~ [2367] ]]; then
+  perms="$(stat -c %a "$CONF_FILE" 2> /dev/null || echo 000)"
+  if [[ ${perms: -1} =~ [2367] ]]; then
     die "$EX_CONFIG" "$CONF_FILE is world-writable (mode $perms); refusing to source it.
 Fix with: chmod o-w '$CONF_FILE'"
   fi
@@ -437,18 +485,22 @@ Fix with: chmod o-w '$CONF_FILE'"
   source "$CONF_FILE"
 
   # CLI flags outrank the file.
-  [[ -n "$CLI_DRY_RUN" ]] && DRY_RUN="$CLI_DRY_RUN"
-  [[ "$VERBOSE" == "true" ]] && LOG_LEVEL="debug"
+  [[ -n $CLI_DRY_RUN ]] && DRY_RUN="$CLI_DRY_RUN"
+  [[ $VERBOSE == "true" ]] && LOG_LEVEL="debug"
 
   # Derive all state paths now that the root is known.
   STATE_DIR="$LOCAL_DIR/$STATE_DIR_NAME"
   SENTINEL_PATH="$STATE_DIR/$SENTINEL_NAME"
   LOCK_FILE="$STATE_DIR/sync.lock"
   DELETE_JOURNAL="$STATE_DIR/pending-deletes"
-  SSH_CONTROL_PATH="$STATE_DIR/ssh-%C"
+
+  # Keep the SSH control socket under a short base directory to avoid
+  # "unix_listener: path too long for Unix domain socket" errors when
+  # $STATE_DIR is deeply nested.
+  SSH_CONTROL_PATH="${XDG_RUNTIME_DIR:-/tmp}/rsync-monitor-ssh-%C"
 
   # LOG_FILE is relative to the root unless given as an absolute path.
-  if [[ "$LOG_FILE" == /* ]]; then
+  if [[ $LOG_FILE == /* ]]; then
     LOG_PATH="$LOG_FILE"
   else
     LOG_PATH="$LOCAL_DIR/$LOG_FILE"
@@ -456,8 +508,6 @@ Fix with: chmod o-w '$CONF_FILE'"
 
   RUN_TS="$(date '+%Y%m%d-%H%M%S')"
 }
-
-
 
 # =============================================================================
 #  SECTION 5 -- DEPENDENCIES
@@ -471,14 +521,15 @@ Fix with: chmod o-w '$CONF_FILE'"
 version_ge() {
   local have="$1" want="$2"
   local -a h w
-  IFS='.' read -ra h <<<"$have"
-  IFS='.' read -ra w <<<"$want"
+  IFS='.' read -ra h <<< "$have"
+  IFS='.' read -ra w <<< "$want"
   local i
   for i in 0 1 2; do
     local hv="${h[i]:-0}" wv="${w[i]:-0}"
-    hv="${hv//[^0-9]/}"; wv="${wv//[^0-9]/}"
-    (( ${hv:-0} > ${wv:-0} )) && return 0
-    (( ${hv:-0} < ${wv:-0} )) && return 1
+    hv="${hv//[^0-9]/}"
+    wv="${wv//[^0-9]/}"
+    ((${hv:-0} > ${wv:-0})) && return 0
+    ((${hv:-0} < ${wv:-0})) && return 1
   done
   return 0
 }
@@ -487,15 +538,15 @@ check_dependencies() {
   local -a missing=()
   local cmd
   for cmd in rsync ssh flock realpath date stat; do
-    command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+    command -v "$cmd" > /dev/null 2>&1 || missing+=("$cmd")
   done
 
   # inotifywait is only needed for continuous watching, not for --once/--check.
-  if [[ "$MODE" == "watch" ]]; then
-    command -v inotifywait >/dev/null 2>&1 || missing+=("inotifywait")
+  if [[ $MODE == "watch" ]]; then
+    command -v inotifywait > /dev/null 2>&1 || missing+=("inotifywait")
   fi
 
-  if (( ${#missing[@]} )); then
+  if ((${#missing[@]})); then
     log_error "missing required commands: ${missing[*]}"
     log_error "on Debian/Ubuntu/Pop!_OS:  sudo apt install rsync openssh-client inotify-tools util-linux coreutils"
     exit "$EX_DEPS"
@@ -506,9 +557,9 @@ check_dependencies() {
   # pipefail`, make the whole pipeline fail with 141. The version output is
   # captured once into a variable and parsed with pure-bash/awk instead.
   local rsync_caps rsync_ver
-  rsync_caps="$(rsync --version 2>/dev/null)" || true
-  rsync_ver="$(awk 'NR==1{print $3; exit}' <<<"$rsync_caps")"
-  [[ -n "$rsync_ver" ]] || die "$EX_DEPS" "could not determine the rsync version"
+  rsync_caps="$(rsync --version 2> /dev/null)" || true
+  rsync_ver="$(awk 'NR==1{print $3; exit}' <<< "$rsync_caps")"
+  [[ -n $rsync_ver ]] || die "$EX_DEPS" "could not determine the rsync version"
   version_ge "$rsync_ver" "$RSYNC_MIN_VERSION" ||
     die "$EX_DEPS" "rsync $rsync_ver is too old; $RSYNC_MIN_VERSION+ is required for --checksum-choice/--compress-choice"
   log_debug "rsync $rsync_ver"
@@ -518,17 +569,17 @@ check_dependencies() {
   # each followed by the supported algorithms. Both are checked because xxh128
   # and lz4 are compile-time features, not universal.
   local checksum_line compress_line
-  checksum_line="$(awk '/Checksum list/{getline; print; exit}' <<<"$rsync_caps")"
-  compress_line="$(awk '/Compress list/{getline; print; exit}'  <<<"$rsync_caps")"
+  checksum_line="$(awk '/Checksum list/{getline; print; exit}' <<< "$rsync_caps")"
+  compress_line="$(awk '/Compress list/{getline; print; exit}' <<< "$rsync_caps")"
 
-  if [[ "$checksum_line" != *xxh128* ]]; then
+  if [[ $checksum_line != *xxh128* ]]; then
     log_error "this rsync build does not support the xxh128 checksum."
     log_error "available:${checksum_line:-  (none reported)}"
     log_error "Install an rsync built with xxhash, or change --checksum-choice in build_common_opts()."
     exit "$EX_DEPS"
   fi
 
-  if [[ "$compress_line" != *lz4* ]]; then
+  if [[ $compress_line != *lz4* ]]; then
     log_error "this rsync build does not support lz4 compression."
     log_error "available:${compress_line:-  (none reported)}"
     log_error "Install an rsync built with lz4, or change --compress-choice in build_common_opts()."
@@ -537,7 +588,6 @@ check_dependencies() {
 
   log_debug "rsync supports xxh128 and lz4"
 }
-
 
 # =============================================================================
 #  SECTION 6 -- CONFIG VALIDATION AND PATH CONTAINMENT
@@ -561,17 +611,17 @@ readonly -a FORBIDDEN_PATHS=(
 validate_sync_path() {
   local path="$1" label="$2"
 
-  [[ -n "$path" ]] || die "$EX_CONFIG" "$label is empty"
-  [[ "$path" == /* ]] || die "$EX_CONFIG" "$label must be an absolute path, got: $path"
-  [[ "$path" != *".."* ]] || die "$EX_CONFIG" "$label must not contain '..': $path"
+  [[ -n $path ]] || die "$EX_CONFIG" "$label is empty"
+  [[ $path == /* ]] || die "$EX_CONFIG" "$label must be an absolute path, got: $path"
+  [[ $path != *".."* ]] || die "$EX_CONFIG" "$label must not contain '..': $path"
 
   # Normalise away any trailing slashes for comparison.
   local norm="${path%/}"
-  [[ -z "$norm" ]] && norm="/"
+  [[ -z $norm ]] && norm="/"
 
   local forbidden
   for forbidden in "${FORBIDDEN_PATHS[@]}"; do
-    if [[ "$norm" == "$forbidden" ]]; then
+    if [[ $norm == "$forbidden" ]]; then
       die "$EX_SAFETY" "$label points at the system directory '$norm'.
 Syncing with --delete there could destroy the system. Choose a dedicated subdirectory."
     fi
@@ -579,8 +629,8 @@ Syncing with --delete there could destroy the system. Choose a dedicated subdire
 
   # Depth check: "/x" has one component, "/x/y" has two.
   local depth
-  depth="$(tr -cd '/' <<<"$norm" | wc -c)"
-  if (( depth < 2 )); then
+  depth="$(tr -cd '/' <<< "$norm" | wc -c)"
+  if ((depth < 2)); then
     die "$EX_SAFETY" "$label ('$norm') is only one level below /.
 That is dangerously broad for a --delete sync; use a nested directory such as '$norm/project'."
   fi
@@ -590,12 +640,12 @@ That is dangerously broad for a --delete sync; use a nested directory such as '$
 
 validate_config() {
   # --- required keys ---
-  [[ -n "$REMOTE_DIR" ]] || die "$EX_CONFIG" "REMOTE_DIR is not set in $CONF_FILE"
+  [[ -n $REMOTE_DIR ]] || die "$EX_CONFIG" "REMOTE_DIR is not set in $CONF_FILE"
 
   # --- local root ---
   # Never created automatically: an empty local root combined with a push
   # --delete would wipe the remote.
-  [[ -d "$LOCAL_DIR" ]] || die "$EX_CONFIG" "local sync root does not exist: $LOCAL_DIR"
+  [[ -d $LOCAL_DIR ]] || die "$EX_CONFIG" "local sync root does not exist: $LOCAL_DIR"
   validate_sync_path "$LOCAL_DIR" "local sync root"
   validate_sync_path "$REMOTE_DIR" "REMOTE_DIR"
 
@@ -604,70 +654,76 @@ validate_config() {
   REMOTE_DIR="${REMOTE_DIR%/}"
 
   # --- local root must be readable and writable (pull writes into it) ---
-  [[ -r "$LOCAL_DIR" ]] || die "$EX_CONFIG" "local sync root is not readable: $LOCAL_DIR"
-  [[ -w "$LOCAL_DIR" ]] || die "$EX_CONFIG" "local sync root is not writable: $LOCAL_DIR"
+  [[ -r $LOCAL_DIR ]] || die "$EX_CONFIG" "local sync root is not readable: $LOCAL_DIR"
+  [[ -w $LOCAL_DIR ]] || die "$EX_CONFIG" "local sync root is not writable: $LOCAL_DIR"
 
   # --- enumerated values ---
   case "$DELETE_MODE" in
-    both|pull|push|none) ;;
+    both | pull | push | none) ;;
     *) die "$EX_CONFIG" "DELETE_MODE must be both|pull|push|none, got '$DELETE_MODE'" ;;
   esac
   case "$PULL_COMPARE" in
-    checksum|quick) ;;
+    checksum | quick) ;;
     *) die "$EX_CONFIG" "PULL_COMPARE must be checksum|quick, got '$PULL_COMPARE'" ;;
   esac
   case "$REMOTE_WATCH" in
-    poll|inotify) ;;
+    poll | inotify) ;;
     *) die "$EX_CONFIG" "REMOTE_WATCH must be poll|inotify, got '$REMOTE_WATCH'" ;;
   esac
   case "$LOG_LEVEL" in
-    error|warn|info|debug) ;;
+    error | warn | info | debug) ;;
     *) die "$EX_CONFIG" "LOG_LEVEL must be error|warn|info|debug, got '$LOG_LEVEL'" ;;
   esac
 
   # --- booleans ---
   local bool_var
   for bool_var in CONFLICT_BACKUP DELETE_PUSH_UNSAFE TRASH_ENABLED SAFE_LINKS \
-                  PRESERVE_HARDLINKS REQUIRE_SENTINEL SSH_MULTIPLEXING \
-                  PARTIAL_TRANSFERS DRY_RUN PRESERVE_OWNER PRESERVE_GROUP; do
+    PRESERVE_HARDLINKS REQUIRE_SENTINEL SSH_MULTIPLEXING \
+    PARTIAL_TRANSFERS DRY_RUN PRESERVE_OWNER PRESERVE_GROUP; do
     local val="${!bool_var}"
-    [[ "$val" == "true" || "$val" == "false" ]] ||
+    [[ $val == "true" || $val == "false" ]] ||
       die "$EX_CONFIG" "$bool_var must be true or false, got '$val'"
   done
 
   # --- numbers (MAX_DELETE additionally allows -1 for "unlimited") ---
   local num_var
   for num_var in TRASH_KEEP_DAYS REMOTE_POLL_INTERVAL DEBOUNCE_SECONDS \
-                 PERIODIC_FULL_SYNC MAX_CHANGES_PER_CYCLE RSYNC_TIMEOUT LOG_MAX_KB; do
+    PERIODIC_FULL_SYNC MAX_CHANGES_PER_CYCLE RSYNC_TIMEOUT LOG_MAX_KB; do
     local nval="${!num_var}"
-    [[ "$nval" =~ ^[0-9]+$ ]] ||
+    [[ $nval =~ ^[0-9]+$ ]] ||
       die "$EX_CONFIG" "$num_var must be a non-negative integer, got '$nval'"
   done
-  [[ "$MAX_DELETE" =~ ^(-1|[0-9]+)$ ]] ||
+  [[ $MAX_DELETE =~ ^(-1|[0-9]+)$ ]] ||
     die "$EX_CONFIG" "MAX_DELETE must be -1 or a non-negative integer, got '$MAX_DELETE'"
 
   # A debounce of 0 would fire a sync per inotify event; editors emit dozens
   # per save, so clamp to a sane floor.
-  (( DEBOUNCE_SECONDS < 1 )) && { DEBOUNCE_SECONDS=1; log_warn "DEBOUNCE_SECONDS raised to 1"; }
-  (( REMOTE_POLL_INTERVAL < 5 )) && { REMOTE_POLL_INTERVAL=5; log_warn "REMOTE_POLL_INTERVAL raised to 5"; }
+  ((DEBOUNCE_SECONDS < 1)) && {
+    DEBOUNCE_SECONDS=1
+    log_warn "DEBOUNCE_SECONDS raised to 1"
+  }
+  ((REMOTE_POLL_INTERVAL < 5)) && {
+    REMOTE_POLL_INTERVAL=5
+    log_warn "REMOTE_POLL_INTERVAL raised to 5"
+  }
 
   # --- ssh key ---
-  if [[ -n "$SSH_KEY" ]]; then
-    [[ "$SSH_KEY" == "~"* ]] && SSH_KEY="${HOME}${SSH_KEY#\~}"
-    [[ -f "$SSH_KEY" ]] || die "$EX_CONFIG" "SSH_KEY not found: $SSH_KEY"
-    [[ -r "$SSH_KEY" ]] || die "$EX_CONFIG" "SSH_KEY not readable: $SSH_KEY"
+  if [[ -n $SSH_KEY ]]; then
+    [[ $SSH_KEY == "~"* ]] && SSH_KEY="${HOME}${SSH_KEY#\~}"
+    [[ -f $SSH_KEY ]] || die "$EX_CONFIG" "SSH_KEY not found: $SSH_KEY"
+    [[ -r $SSH_KEY ]] || die "$EX_CONFIG" "SSH_KEY not readable: $SSH_KEY"
   fi
 
   # --- chown needs privilege on the remote ---
-  if [[ -n "$REMOTE_CHOWN" && -z "$REMOTE_RSYNC" ]]; then
+  if [[ -n $REMOTE_CHOWN && -z $REMOTE_RSYNC ]]; then
     log_warn "REMOTE_CHOWN='$REMOTE_CHOWN' usually needs root on the remote."
     log_warn "If pushes fail with 'chown failed', set REMOTE_RSYNC=\"sudo rsync\" in $CONF_NAME."
   fi
 
   # --- local-only mode ---
-  if [[ -z "$REMOTE" ]]; then
+  if [[ -z $REMOTE ]]; then
     log_warn "REMOTE is empty: operating in LOCAL-TO-LOCAL mode (no ssh)."
-    [[ -d "$REMOTE_DIR" ]] ||
+    [[ -d $REMOTE_DIR ]] ||
       die "$EX_CONFIG" "local-to-local mode needs REMOTE_DIR to exist: $REMOTE_DIR"
     # Catch a root that contains, or is contained by, the other side --
     # rsync would recurse into its own destination.
@@ -702,35 +758,39 @@ init_state_dir() {
     "$STATE_DIR/trash"
     "$STATE_DIR/conflicts"
   )
-  [[ "$PARTIAL_TRANSFERS" == "true" ]] && dirs+=("$STATE_DIR/partial")
+  [[ $PARTIAL_TRANSFERS == "true" ]] && dirs+=("$STATE_DIR/partial")
 
   local d
   for d in "${dirs[@]}"; do
     mkdir -p "$d" || die "$EX_CONFIG" "cannot create state directory: $d"
   done
 
-  # ControlMaster sockets are credentials-adjacent; keep the dir private.
-  chmod 700 "$STATE_DIR" 2>/dev/null || true
+  chmod 700 "$STATE_DIR" 2> /dev/null || true
 
-  touch "$LOG_PATH" 2>/dev/null || die "$EX_CONFIG" "cannot write log file: $LOG_PATH"
-  touch "$DELETE_JOURNAL" 2>/dev/null || true
+  # ControlMaster socket lives under a short base dir to avoid
+  # "unix_listener: path too long" errors; keep it private as well.
+  mkdir -p "$(dirname "$SSH_CONTROL_PATH")" || true
+  chmod 700 "$(dirname "$SSH_CONTROL_PATH")" 2> /dev/null || true
+
+  touch "$LOG_PATH" 2> /dev/null || die "$EX_CONFIG" "cannot write log file: $LOG_PATH"
+  touch "$DELETE_JOURNAL" 2> /dev/null || true
 
   rotate_log_if_needed
 }
 
 # True when this root has synced successfully at least once.
-local_sentinel_exists() { [[ -f "$SENTINEL_PATH" ]]; }
+local_sentinel_exists() { [[ -f $SENTINEL_PATH ]]; }
 
 write_local_sentinel() {
   {
     echo "# rsync-monitor sync root marker -- do not delete"
     echo "# Removing this file makes sync.sh refuse to run (REQUIRE_SENTINEL)."
     echo "created=$(date -Iseconds)"
-    echo "host=$(hostname 2>/dev/null || echo unknown)"
+    echo "host=$(hostname 2> /dev/null || echo unknown)"
     echo "local_dir=$LOCAL_DIR"
     echo "remote=${REMOTE:-<local>}"
     echo "remote_dir=$REMOTE_DIR"
-  } >"$SENTINEL_PATH" 2>/dev/null || log_warn "could not write sentinel: $SENTINEL_PATH"
+  } > "$SENTINEL_PATH" 2> /dev/null || log_warn "could not write sentinel: $SENTINEL_PATH"
 }
 
 # Create the remote .sync/ and its sentinel. Uses ssh, or plain mkdir in
@@ -741,9 +801,9 @@ write_remote_sentinel() {
 created=$(date -Iseconds)
 paired_local=$LOCAL_DIR"
 
-  if [[ -z "$REMOTE" ]]; then
-    mkdir -p "$REMOTE_DIR/$STATE_DIR_NAME" 2>/dev/null || return 1
-    printf '%s\n' "$content" >"$REMOTE_DIR/$STATE_DIR_NAME/$SENTINEL_NAME" 2>/dev/null || return 1
+  if [[ -z $REMOTE ]]; then
+    mkdir -p "$REMOTE_DIR/$STATE_DIR_NAME" 2> /dev/null || return 1
+    printf '%s\n' "$content" > "$REMOTE_DIR/$STATE_DIR_NAME/$SENTINEL_NAME" 2> /dev/null || return 1
     return 0
   fi
 
@@ -752,18 +812,18 @@ paired_local=$LOCAL_DIR"
   local q_state
   q_state="$(shell_quote "$REMOTE_DIR/$STATE_DIR_NAME")"
   printf '%s\n' "$content" |
-    ssh_cmd "mkdir -p $q_state && cat > $q_state/$SENTINEL_NAME" 2>/dev/null || return 1
+    ssh_cmd "mkdir -p $q_state && cat > $q_state/$SENTINEL_NAME" 2> /dev/null || return 1
   return 0
 }
 
 remote_sentinel_exists() {
-  if [[ -z "$REMOTE" ]]; then
+  if [[ -z $REMOTE ]]; then
     [[ -f "$REMOTE_DIR/$STATE_DIR_NAME/$SENTINEL_NAME" ]]
     return $?
   fi
   local q
   q="$(shell_quote "$REMOTE_DIR/$STATE_DIR_NAME/$SENTINEL_NAME")"
-  ssh_cmd "test -f $q" >/dev/null 2>&1
+  ssh_cmd "test -f $q" > /dev/null 2>&1
 }
 
 # Wrap a string in single quotes for safe use in a remote shell command.
@@ -774,28 +834,31 @@ shell_quote() {
 
 # The gate itself: both sides must be marked, or the run is refused.
 check_sentinels() {
-  [[ "$REQUIRE_SENTINEL" == "true" ]] || { log_debug "sentinel check disabled"; return 0; }
+  [[ $REQUIRE_SENTINEL == "true" ]] || {
+    log_debug "sentinel check disabled"
+    return 0
+  }
 
   local local_ok="false" remote_ok="false"
   local_sentinel_exists && local_ok="true"
   remote_sentinel_exists && remote_ok="true"
 
   # Both present: normal steady state.
-  if [[ "$local_ok" == "true" && "$remote_ok" == "true" ]]; then
+  if [[ $local_ok == "true" && $remote_ok == "true" ]]; then
     log_debug "sentinels present on both sides"
     return 0
   fi
 
   # Neither present: a genuine first run. Establish both markers.
-  if [[ "$local_ok" == "false" && "$remote_ok" == "false" ]]; then
+  if [[ $local_ok == "false" && $remote_ok == "false" ]]; then
     log_warn "no sentinel on either side -- treating this as FIRST RUN"
-    if [[ "$FORCE_FIRST_RUN" != "true" && "$DRY_RUN" != "true" ]]; then
+    if [[ $FORCE_FIRST_RUN != "true" && $DRY_RUN != "true" ]]; then
       log_error "First run refused without an explicit go-ahead."
       log_error "Preview it first:   $SCRIPT_NAME --dir '$LOCAL_DIR' --once --dry-run"
       log_error "Then commit to it:  $SCRIPT_NAME --dir '$LOCAL_DIR' --force-first-run"
       exit "$EX_SAFETY"
     fi
-    if [[ "$DRY_RUN" == "true" ]]; then
+    if [[ $DRY_RUN == "true" ]]; then
       log_info "dry run: sentinels would be created on both sides"
       return 0
     fi
@@ -808,7 +871,7 @@ check_sentinels() {
   # Exactly one side marked: the dangerous asymmetry. Either a path is wrong,
   # or a filesystem is not mounted, or the far side was wiped.
   local missing_side
-  [[ "$local_ok" == "false" ]] && missing_side="LOCAL ($LOCAL_DIR)" || missing_side="REMOTE (${REMOTE:-local}:$REMOTE_DIR)"
+  [[ $local_ok == "false" ]] && missing_side="LOCAL ($LOCAL_DIR)" || missing_side="REMOTE (${REMOTE:-local}:$REMOTE_DIR)"
   log_error "sentinel MISSING on the $missing_side side, but present on the other."
   log_error "This usually means one of:"
   log_error "  * the path is wrong in $CONF_NAME"
@@ -822,13 +885,13 @@ check_sentinels() {
 
 # Delete trash/conflict snapshots older than TRASH_KEEP_DAYS.
 prune_old_snapshots() {
-  (( TRASH_KEEP_DAYS == 0 )) && return 0
+  ((TRASH_KEEP_DAYS == 0)) && return 0
   local base
   for base in "$STATE_DIR/trash" "$STATE_DIR/conflicts"; do
-    [[ -d "$base" ]] || continue
+    [[ -d $base ]] || continue
     # -mindepth 1 -maxdepth 1: only the timestamped snapshot dirs themselves.
     find "$base" -mindepth 1 -maxdepth 1 -type d -mtime "+$TRASH_KEEP_DAYS" \
-      -exec rm -rf {} + 2>/dev/null || true
+      -exec rm -rf {} + 2> /dev/null || true
   done
   log_debug "pruned snapshots older than ${TRASH_KEEP_DAYS}d"
 }
@@ -849,10 +912,10 @@ prune_old_snapshots() {
 build_ssh_opts() {
   local -a opts=()
 
-  [[ -n "$REMOTE_PORT" ]] && opts+=( -p "$REMOTE_PORT" )
-  [[ -n "$SSH_KEY" ]] && opts+=( -i "$SSH_KEY" -o "IdentitiesOnly=yes" )
+  [[ -n $REMOTE_PORT ]] && opts+=(-p "$REMOTE_PORT")
+  [[ -n $SSH_KEY ]] && opts+=(-i "$SSH_KEY" -o "IdentitiesOnly=yes")
 
-  if [[ "$SSH_MULTIPLEXING" == "true" ]]; then
+  if [[ $SSH_MULTIPLEXING == "true" ]]; then
     opts+=(
       -o "ControlMaster=auto"
       -o "ControlPath=$SSH_CONTROL_PATH"
@@ -864,11 +927,11 @@ build_ssh_opts() {
   opts+=(
     -o "ServerAliveInterval=15"
     -o "ServerAliveCountMax=3"
-    -o "BatchMode=yes"          # never prompt; fail instead (unattended use)
-    -o "Compression=no"         # rsync does lz4 itself; double-compressing wastes CPU
+    -o "BatchMode=yes"  # never prompt; fail instead (unattended use)
+    -o "Compression=no" # rsync does lz4 itself; double-compressing wastes CPU
   )
 
-  (( ${#SSH_EXTRA_OPTS[@]} )) && opts+=( "${SSH_EXTRA_OPTS[@]}" )
+  ((${#SSH_EXTRA_OPTS[@]})) && opts+=("${SSH_EXTRA_OPTS[@]}")
 
   printf '%s\n' "${opts[@]}"
 }
@@ -889,7 +952,7 @@ build_rsync_ssh_transport() {
 # Run a command on the remote (no-op wrapper in local-to-local mode).
 ssh_cmd() {
   local remote_command="$1"
-  if [[ -z "$REMOTE" ]]; then
+  if [[ -z $REMOTE ]]; then
     bash -c "$remote_command"
     return $?
   fi
@@ -900,9 +963,9 @@ ssh_cmd() {
 
 # Verify we can reach the remote and that REMOTE_DIR is usable there.
 check_connection() {
-  if [[ -z "$REMOTE" ]]; then
+  if [[ -z $REMOTE ]]; then
     log_info "local-to-local mode: skipping the ssh check"
-    [[ -d "$REMOTE_DIR" ]] || die "$EX_CONN" "target directory missing: $REMOTE_DIR"
+    [[ -d $REMOTE_DIR ]] || die "$EX_CONN" "target directory missing: $REMOTE_DIR"
     return 0
   fi
 
@@ -911,11 +974,14 @@ check_connection() {
   mapfile -t opts < <(build_ssh_opts)
 
   # ConnectTimeout is added only here so a slow link cannot stall the check.
-  if ! ssh "${opts[@]}" -o "ConnectTimeout=10" "$REMOTE" true 2>/dev/null; then
+  if ! ssh "${opts[@]}" -o "ConnectTimeout=10" "$REMOTE" true 2> /dev/null; then
     log_error "cannot connect to '$REMOTE'."
     log_error "Checks: host reachable? key loaded (ssh-add -l)? BatchMode forbids prompts,"
     log_error "so password-only auth will fail -- set up key auth or an ssh-agent."
-    log_error "Reproduce manually:  ssh $(IFS=' '; echo "${opts[*]}") $REMOTE true"
+    log_error "Reproduce manually:  ssh $(
+      IFS=' '
+      echo "${opts[*]}"
+    ) $REMOTE true"
     exit "$EX_CONN"
   fi
   log_debug "ssh connection ok"
@@ -923,21 +989,21 @@ check_connection() {
   # REMOTE_DIR must exist and be writable; pushes and remote deletes need both.
   local q
   q="$(shell_quote "$REMOTE_DIR")"
-  if ! ssh_cmd "test -d $q" 2>/dev/null; then
+  if ! ssh_cmd "test -d $q" 2> /dev/null; then
     log_error "REMOTE_DIR does not exist on $REMOTE: $REMOTE_DIR"
     log_error "Create it first:  ssh $REMOTE 'mkdir -p $REMOTE_DIR'"
     exit "$EX_CONN"
   fi
-  if ! ssh_cmd "test -w $q" 2>/dev/null; then
+  if ! ssh_cmd "test -w $q" 2> /dev/null; then
     die "$EX_CONN" "REMOTE_DIR is not writable by this ssh user: $REMOTE_DIR"
   fi
 
   # Warn (do not fail) if the remote rsync lacks the algorithms we request:
   # rsync negotiates, so a mismatch degrades rather than breaks.
   local remote_caps
-  if remote_caps="$(ssh_cmd "${REMOTE_RSYNC:-rsync} --version 2>/dev/null | head -20" 2>/dev/null)"; then
-    grep -qi 'xxh128' <<<"$remote_caps" || log_warn "remote rsync may not support xxh128; rsync will negotiate a fallback"
-    grep -qi 'lz4' <<<"$remote_caps" || log_warn "remote rsync may not support lz4; rsync will negotiate a fallback"
+  if remote_caps="$(ssh_cmd "${REMOTE_RSYNC:-rsync} --version 2>/dev/null | head -20" 2> /dev/null)"; then
+    grep -qi 'xxh128' <<< "$remote_caps" || log_warn "remote rsync may not support xxh128; rsync will negotiate a fallback"
+    grep -qi 'lz4' <<< "$remote_caps" || log_warn "remote rsync may not support lz4; rsync will negotiate a fallback"
   else
     log_warn "could not query the remote rsync version"
   fi
@@ -963,12 +1029,12 @@ build_common_opts() {
   local -a o=()
 
   # --- traversal and metadata ---
-  o+=( --recursive )          # descend the tree
-  o+=( --times )              # preserve mtimes (required for --update to work)
-  o+=( --perms )              # preserve the permission bits
-  o+=( --devices --specials ) # device and fifo/socket nodes (needs privilege)
-  o+=( --omit-link-times )    # do not try to set mtimes on symlinks; many
-                              # filesystems reject it and it only adds noise
+  o+=(--recursive)          # descend the tree
+  o+=(--times)              # preserve mtimes (required for --update to work)
+  o+=(--perms)              # preserve the permission bits
+  o+=(--devices --specials) # device and fifo/socket nodes (needs privilege)
+  o+=(--omit-link-times)    # do not try to set mtimes on symlinks; many
+  # filesystems reject it and it only adds noise
 
   # --- SYMLINKS: copy them, never follow them ---
   # --links recreates each symlink as a symlink.
@@ -979,58 +1045,57 @@ build_common_opts() {
   #   --keep-dirlinks (-K)     would let the receiver WRITE AND DELETE THROUGH
   #                            a symlinked directory, which is precisely how a
   #                            --delete could escape the sync tree
-  o+=( --links )
+  o+=(--links)
 
   # Optional hardening: skip links pointing outside the tree (and all absolute
   # links). Off by default so ordinary symlinks replicate faithfully -- safe
   # because without --keep-dirlinks such a link is never traversed.
-  [[ "$SAFE_LINKS" == "true" ]] && o+=( --safe-links )
+  [[ $SAFE_LINKS == "true" ]] && o+=(--safe-links)
 
-  [[ "$PRESERVE_HARDLINKS" == "true" ]] && o+=( --hard-links )
-  [[ "$PRESERVE_GROUP" == "true" ]] && o+=( --group )
-  [[ "$PRESERVE_OWNER" == "true" ]] && o+=( --owner )
+  [[ $PRESERVE_HARDLINKS == "true" ]] && o+=(--hard-links)
+  [[ $PRESERVE_GROUP == "true" ]] && o+=(--group)
+  [[ $PRESERVE_OWNER == "true" ]] && o+=(--owner)
 
   # --- integrity: xxh128 ---
   # --checksum-choice selects the algorithm used for the whole-file comparison
   # (with --checksum) and for the delta-transfer block checks. xxh128 is far
   # faster than md5 at equal-or-better collision resistance for this purpose.
-  o+=( --checksum-choice=xxh128 )
+  o+=(--checksum-choice=xxh128)
 
   # --- compression: lz4 ---
   # lz4 is chosen for latency: it compresses fast enough not to become the
   # bottleneck on a fast link, unlike zlib/zstd at higher levels.
-  o+=( --compress --compress-choice=lz4 )
+  o+=(--compress --compress-choice=lz4)
 
   # --- efficiency ---
-  o+=( --sparse )              # store holes efficiently (VM images, DBs)
-  o+=( --human-readable )
+  o+=(--sparse) # store holes efficiently (VM images, DBs)
+  o+=(--human-readable)
 
   # Resume interrupted large files instead of restarting them. The partial dir
   # sits in .sync/ so half-written files never appear in the live tree.
-  if [[ "$PARTIAL_TRANSFERS" == "true" ]]; then
-    o+=( --partial --partial-dir="$STATE_DIR_NAME/partial" )
+  if [[ $PARTIAL_TRANSFERS == "true" ]]; then
+    o+=(--partial --partial-dir="$STATE_DIR_NAME/partial")
   fi
 
-  [[ -n "$BWLIMIT" ]] && o+=( --bwlimit="$BWLIMIT" )
-  (( RSYNC_TIMEOUT > 0 )) && o+=( --timeout="$RSYNC_TIMEOUT" )
+  [[ -n $BWLIMIT ]] && o+=(--bwlimit="$BWLIMIT")
+  ((RSYNC_TIMEOUT > 0)) && o+=(--timeout="$RSYNC_TIMEOUT")
 
   # --- transport ---
-  if [[ -n "$REMOTE" ]]; then
-    o+=( -e "$(build_rsync_ssh_transport)" )
-    [[ -n "$REMOTE_RSYNC" ]] && o+=( --rsync-path="$REMOTE_RSYNC" )
+  if [[ -n $REMOTE ]]; then
+    o+=(-e "$(build_rsync_ssh_transport)")
+    [[ -n $REMOTE_RSYNC ]] && o+=(--rsync-path="$REMOTE_RSYNC")
   fi
 
   # --- reporting ---
   # --itemize-changes gives one parseable line per change, which is what the
   # change counting and dry-run summaries read.
-  o+=( --itemize-changes )
-  [[ "$DRY_RUN" == "true" ]] && o+=( --dry-run )
-  [[ "$LOG_LEVEL" == "debug" ]] && o+=( --verbose )
+  o+=(--itemize-changes)
+  [[ $DRY_RUN == "true" ]] && o+=(--dry-run)
+  [[ $LOG_LEVEL == "debug" ]] && o+=(--verbose)
 
   printf '%s\n' "${o[@]}"
 
-
-# Filter rules. Order is significant: rsync applies the FIRST matching rule,
+  # Filter rules. Order is significant: rsync applies the FIRST matching rule,
 }
 # so protections and exclusions must precede anything broader.
 build_filter_opts() {
@@ -1040,32 +1105,32 @@ build_filter_opts() {
   #    PROTECTED from deletion on the receiver. Without the protect rule a
   #    --delete pass would remove the other side's .sync/ (its sentinel, its
   #    trash, its log) because the sender has no such path to justify it.
-  o+=( --filter="protect /$STATE_DIR_NAME/" )
-  o+=( --filter="exclude /$STATE_DIR_NAME/" )
+  o+=(--filter="protect /$STATE_DIR_NAME/")
+  o+=(--filter="exclude /$STATE_DIR_NAME/")
 
   # 2. sync.conf itself stays local: it names this machine's remote, and each
   #    side legitimately has its own. Protected so it is never deleted either.
-  o+=( --filter="protect /$CONF_NAME" )
-  o+=( --filter="exclude /$CONF_NAME" )
-  o+=( --filter="protect /sync.conf.example" )
-  o+=( --filter="exclude /sync.conf.example" )
+  o+=(--filter="protect /$CONF_NAME")
+  o+=(--filter="exclude /$CONF_NAME")
+  o+=(--filter="protect /sync.conf.example")
+  o+=(--filter="exclude /sync.conf.example")
 
   # 3. User excludes. A "protect" rule is emitted alongside each one so an
   #    excluded file on the receiver is not deleted merely because the sender
   #    cannot see it.
   local pattern
   for pattern in "${EXCLUDES[@]}"; do
-    [[ -z "$pattern" ]] && continue
-    [[ "$pattern" == "#"* ]] && continue        # allow commented entries
+    [[ -z $pattern ]] && continue
+    [[ $pattern == "#"* ]] && continue # allow commented entries
 
     # A leading "!" means re-include (rsync's "include" rule).
-    if [[ "$pattern" == "!"* ]]; then
-      o+=( --filter="include ${pattern#!}" )
+    if [[ $pattern == "!"* ]]; then
+      o+=(--filter="include ${pattern#!}")
       continue
     fi
 
-    o+=( --filter="protect $pattern" )
-    o+=( --filter="exclude $pattern" )
+    o+=(--filter="protect $pattern")
+    o+=(--filter="exclude $pattern")
   done
 
   printf '%s\n' "${o[@]}"
@@ -1084,16 +1149,16 @@ build_pull_opts() {
   # Content-based comparison. Across two hosts mtime is unreliable (clock skew,
   # differing timestamp granularity), so conflicts are detected by xxh128
   # content hash rather than by timestamp.
-  [[ "$PULL_COMPARE" == "checksum" ]] && o+=( --checksum )
+  [[ $PULL_COMPARE == "checksum" ]] && o+=(--checksum)
 
   # Preserve the local copy that loses a conflict. --backup moves the existing
   # local file aside instead of overwriting it in place; combined with --delete
   # below it also captures files removed on the remote.
-  if [[ "$CONFLICT_BACKUP" == "true" ]]; then
-    o+=( --backup --backup-dir="$STATE_DIR/conflicts/$RUN_TS" )
+  if [[ $CONFLICT_BACKUP == "true" ]]; then
+    o+=(--backup --backup-dir="$STATE_DIR/conflicts/$RUN_TS")
     # Without --suffix rsync appends "~"; the timestamped dir already
     # disambiguates, so keep the original filenames.
-    o+=( --suffix= )
+    o+=(--suffix=)
   fi
 
   # NOTE: no --delete here, deliberately.
@@ -1106,8 +1171,8 @@ build_pull_opts() {
   # Remote deletions are therefore detected by comparing the remote file list
   # against a snapshot of the previous cycle (see apply_remote_deletions), and
   # only genuinely-vanished paths are removed locally.
-  if [[ "$DELETE_MODE" == "both" || "$DELETE_MODE" == "pull" ]]; then
-    (( MAX_DELETE >= 0 )) && o+=( --max-delete="$MAX_DELETE" )
+  if [[ $DELETE_MODE == "both" || $DELETE_MODE == "pull" ]]; then
+    ((MAX_DELETE >= 0)) && o+=(--max-delete="$MAX_DELETE")
   fi
 
   printf '%s\n' "${o[@]}"
@@ -1122,16 +1187,16 @@ build_push_opts() {
   # --update: skip any remote file whose mtime is newer than the local one.
   # This is the second half of "remote wins" -- even if the pull missed a
   # change (say it landed mid-cycle), the push still refuses to clobber it.
-  o+=( --update )
+  o+=(--update)
 
   # Remote-side permissions and ownership, push direction only.
-  [[ -n "$REMOTE_CHMOD" ]] && o+=( --chmod="$REMOTE_CHMOD" )
-  [[ -n "$REMOTE_CHOWN" ]] && o+=( --chown="$REMOTE_CHOWN" )
+  [[ -n $REMOTE_CHMOD ]] && o+=(--chmod="$REMOTE_CHMOD")
+  [[ -n $REMOTE_CHOWN ]] && o+=(--chown="$REMOTE_CHOWN")
 
   # Keep a recycle bin on the remote so a push-side delete is recoverable.
-  if [[ "$TRASH_ENABLED" == "true" && ( "$DELETE_MODE" == "both" || "$DELETE_MODE" == "push" ) ]]; then
-    o+=( --backup --backup-dir="$STATE_DIR_NAME/trash/$RUN_TS" )
-    o+=( --suffix= )
+  if [[ $TRASH_ENABLED == "true" && ($DELETE_MODE == "both" || $DELETE_MODE == "push") ]]; then
+    o+=(--backup --backup-dir="$STATE_DIR_NAME/trash/$RUN_TS")
+    o+=(--suffix=)
   fi
 
   printf '%s\n' "${o[@]}"
@@ -1171,12 +1236,12 @@ list_remote_paths() {
   # long listing ("perms size date time path -> target"), which is fragile to
   # parse for names containing spaces or " -> ". A --dry-run against an empty
   # scratch destination with --out-format='%n' prints one bare path per line.
-  local -a opts=( --recursive --links --dry-run --out-format=%n )
-  [[ "$SAFE_LINKS" == "true" ]] && opts+=( --safe-links )
-  (( RSYNC_TIMEOUT > 0 )) && opts+=( --timeout="$RSYNC_TIMEOUT" )
-  if [[ -n "$REMOTE" ]]; then
-    opts+=( -e "$(build_rsync_ssh_transport)" )
-    [[ -n "$REMOTE_RSYNC" ]] && opts+=( --rsync-path="$REMOTE_RSYNC" )
+  local -a opts=(--recursive --links --dry-run --out-format=%n)
+  [[ $SAFE_LINKS == "true" ]] && opts+=(--safe-links)
+  ((RSYNC_TIMEOUT > 0)) && opts+=(--timeout="$RSYNC_TIMEOUT")
+  if [[ -n $REMOTE ]]; then
+    opts+=(-e "$(build_rsync_ssh_transport)")
+    [[ -n $REMOTE_RSYNC ]] && opts+=(--rsync-path="$REMOTE_RSYNC")
   fi
 
   # The scratch destination is only ever read as a name: --dry-run guarantees
@@ -1185,7 +1250,7 @@ list_remote_paths() {
 
   # Directories arrive with a trailing slash and the tree root as "./" -- both
   # are normalised away so the result is a plain sorted list of relative paths.
-  rsync "${opts[@]}" "${filters[@]}" "$(remote_endpoint)" "$scratch/" 2>/dev/null |
+  rsync "${opts[@]}" "${filters[@]}" "$(remote_endpoint)" "$scratch/" 2> /dev/null |
     sed -e 's|/$||' -e '/^\.$/d' -e '/^$/d' |
     LC_ALL=C sort -u
 }
@@ -1193,22 +1258,22 @@ list_remote_paths() {
 # Compare the previous remote snapshot with the current listing and remove
 # locally only what genuinely disappeared from the remote.
 apply_remote_deletions() {
-  [[ "$DELETE_MODE" == "both" || "$DELETE_MODE" == "pull" ]] || return 0
+  [[ $DELETE_MODE == "both" || $DELETE_MODE == "pull" ]] || return 0
 
   local snapshot="$STATE_DIR/remote-snapshot"
   local current
   current="$(mktemp "$STATE_DIR/.remote-list.XXXXXX")" || return 0
 
-  if ! list_remote_paths >"$current"; then
+  if ! list_remote_paths > "$current"; then
     log_warn "could not list the remote tree; skipping pull-side deletions"
     rm -f "$current"
     return 0
   fi
 
   # No snapshot yet (first run): record the baseline and delete nothing.
-  if [[ ! -f "$snapshot" ]]; then
-    [[ "$DRY_RUN" == "true" ]] || mv -f "$current" "$snapshot"
-    rm -f "$current" 2>/dev/null || true
+  if [[ ! -f $snapshot ]]; then
+    [[ $DRY_RUN == "true" ]] || mv -f "$current" "$snapshot"
+    rm -f "$current" 2> /dev/null || true
     log_debug "remote snapshot initialised; no pull-side deletions on a first run"
     return 0
   fi
@@ -1220,24 +1285,24 @@ apply_remote_deletions() {
   local -a to_delete=()
   local rel
   for rel in "${vanished[@]}"; do
-    [[ -z "$rel" ]] && continue
+    [[ -z $rel ]] && continue
     # Containment: never act on absolute paths, traversal, or our own state.
-    [[ "$rel" == /* || "$rel" == *".."* ]] && continue
-    [[ "$rel" == "$STATE_DIR_NAME"* || "$rel" == "$CONF_NAME" ]] && continue
+    [[ $rel == /* || $rel == *".."* ]] && continue
+    [[ $rel == "$STATE_DIR_NAME"* || $rel == "$CONF_NAME" ]] && continue
     # Only delete if it still exists locally.
     [[ -e "$LOCAL_DIR/$rel" || -L "$LOCAL_DIR/$rel" ]] || continue
     to_delete+=("$rel")
   done
 
-  if (( ${#to_delete[@]} == 0 )); then
-    [[ "$DRY_RUN" == "true" ]] || mv -f "$current" "$snapshot"
-    rm -f "$current" 2>/dev/null || true
+  if ((${#to_delete[@]} == 0)); then
+    [[ $DRY_RUN == "true" ]] || mv -f "$current" "$snapshot"
+    rm -f "$current" 2> /dev/null || true
     log_debug "no remote deletions to apply"
     return 0
   fi
 
   # Deletion cap applies here too.
-  if (( MAX_DELETE >= 0 && ${#to_delete[@]} > MAX_DELETE )); then
+  if ((MAX_DELETE >= 0 && ${#to_delete[@]} > MAX_DELETE)); then
     log_error "${#to_delete[@]} remote deletion(s) detected, over MAX_DELETE=$MAX_DELETE."
     log_error "Refusing to apply them. This often means the remote path is wrong or unmounted."
     rm -f "$current"
@@ -1246,7 +1311,7 @@ apply_remote_deletions() {
 
   log_info "applying ${#to_delete[@]} remote deletion(s) locally"
 
-  if [[ "$DRY_RUN" == "true" ]]; then
+  if [[ $DRY_RUN == "true" ]]; then
     printf '  would delete locally: %s\n' "${to_delete[@]}" >&2
     rm -f "$current"
     return 0
@@ -1254,14 +1319,14 @@ apply_remote_deletions() {
 
   local trash_dir="$STATE_DIR/trash/$RUN_TS"
   for rel in "${to_delete[@]}"; do
-    if [[ "$TRASH_ENABLED" == "true" ]]; then
-      mkdir -p "$trash_dir/$(dirname -- "$rel")" 2>/dev/null || true
-      mv -f "$LOCAL_DIR/$rel" "$trash_dir/$rel" 2>/dev/null ||
+    if [[ $TRASH_ENABLED == "true" ]]; then
+      mkdir -p "$trash_dir/$(dirname -- "$rel")" 2> /dev/null || true
+      mv -f "$LOCAL_DIR/$rel" "$trash_dir/$rel" 2> /dev/null ||
         log_warn "could not move '$rel' to the trash"
     else
       # ${var:?} makes bash abort rather than expand to "/" if either variable
       # is somehow empty -- a last line of defence around a recursive delete.
-      rm -rf -- "${LOCAL_DIR:?}/${rel:?}" 2>/dev/null || log_warn "could not delete '$rel'"
+      rm -rf -- "${LOCAL_DIR:?}/${rel:?}" 2> /dev/null || log_warn "could not delete '$rel'"
     fi
   done
 
@@ -1273,14 +1338,14 @@ apply_remote_deletions() {
 # Refresh the snapshot at the end of a cycle, so the next cycle compares
 # against the state the two sides actually converged on.
 update_remote_snapshot() {
-  [[ "$DELETE_MODE" == "both" || "$DELETE_MODE" == "pull" ]] || return 0
-  [[ "$DRY_RUN" == "true" ]] && return 0
+  [[ $DELETE_MODE == "both" || $DELETE_MODE == "pull" ]] || return 0
+  [[ $DRY_RUN == "true" ]] && return 0
   local snapshot="$STATE_DIR/remote-snapshot"
   local tmp
   tmp="$(mktemp "$STATE_DIR/.remote-list.XXXXXX")" || return 0
-  if list_remote_paths >"$tmp"; then
+  if list_remote_paths > "$tmp"; then
     mv -f "$tmp" "$snapshot"
-    log_debug "remote snapshot updated ($(wc -l <"$snapshot") path(s))"
+    log_debug "remote snapshot updated ($(wc -l < "$snapshot") path(s))"
   else
     rm -f "$tmp"
   fi
@@ -1306,27 +1371,36 @@ update_remote_snapshot() {
 #  re-validated against the tree before use.
 # ---------------------------------------------------------------------------
 apply_journaled_deletes() {
-  [[ "$DELETE_MODE" == "both" || "$DELETE_MODE" == "push" ]] || return 0
-  [[ -s "$DELETE_JOURNAL" ]] || { log_debug "delete journal empty"; return 0; }
+  [[ $DELETE_MODE == "both" || $DELETE_MODE == "push" ]] || return 0
+  [[ -s $DELETE_JOURNAL ]] || {
+    log_debug "delete journal empty"
+    return 0
+  }
 
   # Read, then immediately truncate, so events arriving during this pass are
   # not lost and not double-applied.
   local -a paths=()
-  mapfile -t paths <"$DELETE_JOURNAL"
-  : >"$DELETE_JOURNAL"
+  mapfile -t paths < "$DELETE_JOURNAL"
+  : > "$DELETE_JOURNAL"
 
   local -a valid=()
   local rel
   for rel in "${paths[@]}"; do
-    [[ -z "$rel" ]] && continue
+    [[ -z $rel ]] && continue
 
     # Containment re-check. The journal is a file on disk; treat it as
     # untrusted input. Reject absolute paths and any traversal attempt so a
     # corrupted or tampered journal cannot delete outside REMOTE_DIR.
-    [[ "$rel" == /* ]] && { log_warn "journal: skipping absolute path '$rel'"; continue; }
-    [[ "$rel" == *".."* ]] && { log_warn "journal: skipping traversal path '$rel'"; continue; }
-    [[ "$rel" == "$STATE_DIR_NAME/"* ]] && continue     # never touch .sync/
-    [[ "$rel" == "$CONF_NAME" ]] && continue            # never touch sync.conf
+    [[ $rel == /* ]] && {
+      log_warn "journal: skipping absolute path '$rel'"
+      continue
+    }
+    [[ $rel == *".."* ]] && {
+      log_warn "journal: skipping traversal path '$rel'"
+      continue
+    }
+    [[ $rel == "$STATE_DIR_NAME/"* ]] && continue # never touch .sync/
+    [[ $rel == "$CONF_NAME" ]] && continue        # never touch sync.conf
 
     # If the path exists locally again it was recreated (a "delete" that was
     # really an editor's atomic save), so it must not be deleted remotely.
@@ -1338,23 +1412,26 @@ apply_journaled_deletes() {
     valid+=("$rel")
   done
 
-  (( ${#valid[@]} )) || { log_debug "no valid journaled deletions"; return 0; }
+  ((${#valid[@]})) || {
+    log_debug "no valid journaled deletions"
+    return 0
+  }
 
   # Respect the deletion cap here too.
-  if (( MAX_DELETE >= 0 && ${#valid[@]} > MAX_DELETE )); then
+  if ((MAX_DELETE >= 0 && ${#valid[@]} > MAX_DELETE)); then
     log_error "journal holds ${#valid[@]} deletions, over MAX_DELETE=$MAX_DELETE."
     log_error "Refusing to apply them; this often means a bulk local delete was unintended."
     log_error "Review .sync/pending-deletes, then raise MAX_DELETE or clear the journal."
-    printf '%s\n' "${valid[@]}" >>"$DELETE_JOURNAL"
+    printf '%s\n' "${valid[@]}" >> "$DELETE_JOURNAL"
     return 1
   fi
 
   log_info "applying ${#valid[@]} local deletion(s) to the remote"
 
-  if [[ "$DRY_RUN" == "true" ]]; then
+  if [[ $DRY_RUN == "true" ]]; then
     printf '  would delete remotely: %s\n' "${valid[@]}" >&2
     # Put them back so a later real run still applies them.
-    printf '%s\n' "${valid[@]}" >>"$DELETE_JOURNAL"
+    printf '%s\n' "${valid[@]}" >> "$DELETE_JOURNAL"
     return 0
   fi
 
@@ -1362,13 +1439,14 @@ apply_journaled_deletes() {
   # bin is enabled, otherwise remove it outright. Paths are single-quoted.
   local remote_script
   remote_script="set -e; cd $(shell_quote "$REMOTE_DIR") || exit 1;"
-  if [[ "$TRASH_ENABLED" == "true" ]]; then
+  if [[ $TRASH_ENABLED == "true" ]]; then
     remote_script+=" mkdir -p $(shell_quote "$STATE_DIR_NAME/trash/$RUN_TS");"
   fi
 
   for rel in "${valid[@]}"; do
-    local q; q="$(shell_quote "$rel")"
-    if [[ "$TRASH_ENABLED" == "true" ]]; then
+    local q
+    q="$(shell_quote "$rel")"
+    if [[ $TRASH_ENABLED == "true" ]]; then
       # --parents keeps the original directory layout inside the trash dir.
       remote_script+=" if [ -e $q ] || [ -L $q ]; then mkdir -p \"\$(dirname $(shell_quote "$STATE_DIR_NAME/trash/$RUN_TS/$rel"))\"; mv -f $q $(shell_quote "$STATE_DIR_NAME/trash/$RUN_TS/$rel") 2>/dev/null || true; fi;"
     else
@@ -1376,14 +1454,14 @@ apply_journaled_deletes() {
     fi
   done
 
-  if ssh_cmd "$remote_script" 2>/dev/null; then
+  if ssh_cmd "$remote_script" 2> /dev/null; then
     log_ok "removed ${#valid[@]} path(s) from the remote"
     return 0
   fi
 
   log_warn "some remote deletions failed; re-queueing them for the next cycle"
 
-  printf '%s\n' "${valid[@]}" >>"$DELETE_JOURNAL"
+  printf '%s\n' "${valid[@]}" >> "$DELETE_JOURNAL"
   return 1
 }
 
@@ -1396,7 +1474,7 @@ apply_journaled_deletes() {
 # destination, whereas "src" would create "dest/src". Getting this wrong with
 # --delete active would be destructive, so it is centralised here.
 remote_endpoint() {
-  if [[ -z "$REMOTE" ]]; then
+  if [[ -z $REMOTE ]]; then
     printf '%s/' "$REMOTE_DIR"
   else
     printf '%s:%s/' "$REMOTE" "$REMOTE_DIR"
@@ -1413,7 +1491,7 @@ count_itemized_changes() {
   # `|| true`. Using `|| echo 0` here would print a SECOND line ("0\n0") and
   # break the arithmetic contexts that consume this value.
   local n
-  n="$(grep -cE '^([<>ch.*][fdLDS]|\*deleting)' <<<"$output" 2>/dev/null || true)"
+  n="$(grep -cE '^([<>ch.*][fdLDS]|\*deleting)' <<< "$output" 2> /dev/null || true)"
   # Strip anything non-numeric (empty output, stray whitespace) and default to 0.
   n="${n//[^0-9]/}"
   printf '%s' "${n:-0}"
@@ -1426,12 +1504,12 @@ run_rsync() {
   shift 3
   local -a extra=("$@")
 
-  local -a cmd=( rsync )
+  local -a cmd=(rsync)
   local -a common=() filters=()
   mapfile -t common < <(build_common_opts)
   mapfile -t filters < <(build_filter_opts)
 
-  cmd+=( "${common[@]}" "${filters[@]}" "${extra[@]}" "$src" "$dst" )
+  cmd+=("${common[@]}" "${filters[@]}" "${extra[@]}" "$src" "$dst")
 
   log_debug "$label: ${cmd[*]}"
 
@@ -1441,8 +1519,8 @@ run_rsync() {
 
   # Surface rsync's own output at debug level, or whenever it actually changed
   # something (so the log records what moved).
-  if [[ -n "$output" ]]; then
-    if [[ "$LOG_LEVEL" == "debug" || "$DRY_RUN" == "true" ]]; then
+  if [[ -n $output ]]; then
+    if [[ $LOG_LEVEL == "debug" || $DRY_RUN == "true" ]]; then
       printf '%s\n' "$output" >&2
     fi
   fi
@@ -1452,7 +1530,7 @@ run_rsync() {
 
   case "$status" in
     0)
-      if (( changes > 0 )); then
+      if ((changes > 0)); then
         log_ok "$label: $changes change(s)"
       else
         log_debug "$label: already in sync"
@@ -1476,7 +1554,7 @@ run_rsync() {
       ;;
     *)
       log_error "$label: rsync failed with status $status"
-      [[ -n "$output" ]] && printf '%s\n' "$output" >&2
+      [[ -n $output ]] && printf '%s\n' "$output" >&2
       ;;
   esac
 
@@ -1514,35 +1592,35 @@ do_push() {
 # extra, redundant dry-run pull. Both directions are now measured (only the
 # ones this cycle will run) and summed.
 estimate_changes() {
-  (( MAX_CHANGES_PER_CYCLE == 0 )) && return 0
+  ((MAX_CHANGES_PER_CYCLE == 0)) && return 0
 
   # Force --dry-run into the option set while counting.
   local saved_dry="$DRY_RUN"
   DRY_RUN="true"
 
   local -a common=() filters=()
-  mapfile -t common  < <(build_common_opts)
+  mapfile -t common < <(build_common_opts)
   mapfile -t filters < <(build_filter_opts)
 
   local out total=0
-  if [[ "$DIRECTION" == "both" || "$DIRECTION" == "pull" ]]; then
+  if [[ $DIRECTION == "both" || $DIRECTION == "pull" ]]; then
     local -a popts=()
     mapfile -t popts < <(build_pull_opts)
     out="$(rsync "${common[@]}" "${filters[@]}" "${popts[@]}" \
-           "$(remote_endpoint)" "$(local_endpoint)" 2>/dev/null)" || true
-    (( total += $(count_itemized_changes "$out") ))
+      "$(remote_endpoint)" "$(local_endpoint)" 2> /dev/null)" || true
+    ((total += $(count_itemized_changes "$out")))
   fi
-  if [[ "$DIRECTION" == "both" || "$DIRECTION" == "push" ]]; then
+  if [[ $DIRECTION == "both" || $DIRECTION == "push" ]]; then
     local -a pushopts=()
     mapfile -t pushopts < <(build_push_opts)
     out="$(rsync "${common[@]}" "${filters[@]}" "${pushopts[@]}" \
-           "$(local_endpoint)" "$(remote_endpoint)" 2>/dev/null)" || true
-    (( total += $(count_itemized_changes "$out") ))
+      "$(local_endpoint)" "$(remote_endpoint)" 2> /dev/null)" || true
+    ((total += $(count_itemized_changes "$out")))
   fi
 
   DRY_RUN="$saved_dry"
 
-  if (( total > MAX_CHANGES_PER_CYCLE )); then
+  if ((total > MAX_CHANGES_PER_CYCLE)); then
     log_error "this cycle would change $total files, over MAX_CHANGES_PER_CYCLE=$MAX_CHANGES_PER_CYCLE."
     log_error "Refusing to proceed. Inspect with: $SCRIPT_NAME --dir '$LOCAL_DIR' --once --dry-run"
     return 1
@@ -1586,7 +1664,7 @@ sync_cycle() {
   RUN_TS="$(date '+%Y%m%d-%H%M%S')"
 
   log_info "--- sync cycle start (trigger: $reason) ---"
-  [[ "$DRY_RUN" == "true" ]] && log_warn "DRY RUN: nothing will be modified"
+  [[ $DRY_RUN == "true" ]] && log_warn "DRY RUN: nothing will be modified"
 
   rotate_log_if_needed
 
@@ -1601,8 +1679,8 @@ sync_cycle() {
   # still present on the remote, re-download the copy the user just deleted, and
   # then the journal step would find it "exists again locally" and skip it -- so
   # the deletion would silently undo itself every cycle.
-  if [[ "$DIRECTION" == "both" || "$DIRECTION" == "push" ]]; then
-    if [[ "$MODE" == "watch" || -s "$DELETE_JOURNAL" ]]; then
+  if [[ $DIRECTION == "both" || $DIRECTION == "push" ]]; then
+    if [[ $MODE == "watch" || -s $DELETE_JOURNAL ]]; then
       apply_journaled_deletes || log_warn "journaled deletions incomplete"
     fi
   fi
@@ -1610,17 +1688,17 @@ sync_cycle() {
   # --- 2. Remote deletions -> local (snapshot diff, not a blanket --delete) ---
   # Also before the pull, so a file deleted remotely is removed locally instead
   # of being re-uploaded by the push later in this same cycle.
-  if [[ "$DIRECTION" == "both" || "$DIRECTION" == "pull" ]]; then
+  if [[ $DIRECTION == "both" || $DIRECTION == "pull" ]]; then
     apply_remote_deletions || log_warn "pull-side deletions incomplete"
   fi
 
   # --- 3. PULL (remote authoritative) ---
-  if [[ "$DIRECTION" == "both" || "$DIRECTION" == "pull" ]]; then
+  if [[ $DIRECTION == "both" || $DIRECTION == "pull" ]]; then
     if ! do_pull; then
       rc=$?
       # 25 (max-delete) is reported but does not abort the push: the transfer
       # itself succeeded, only deletions were curtailed.
-      if (( rc != 25 )); then
+      if ((rc != 25)); then
         log_error "pull failed (status $rc); skipping the push to avoid acting on a partial state"
         log_info "--- sync cycle end (failed) ---"
         return "$EX_RSYNC"
@@ -1629,10 +1707,10 @@ sync_cycle() {
   fi
 
   # --- 3. PUSH (never clobbers a newer remote file) ---
-  if [[ "$DIRECTION" == "both" || "$DIRECTION" == "push" ]]; then
+  if [[ $DIRECTION == "both" || $DIRECTION == "push" ]]; then
     if ! do_push; then
       rc=$?
-      (( rc != 25 )) && log_error "push failed (status $rc)"
+      ((rc != 25)) && log_error "push failed (status $rc)"
     fi
   fi
 
@@ -1640,15 +1718,15 @@ sync_cycle() {
   # The journal already ran as step 1. This is the explicitly-unsafe escape
   # hatch for "make the remote exactly match local", with no journal to consult:
   # it cannot distinguish a new remote file from a local deletion.
-  if [[ "$DIRECTION" == "both" || "$DIRECTION" == "push" ]]; then
-    if [[ "$MODE" != "watch" && "$DELETE_PUSH_UNSAFE" == "true" ]]; then
+  if [[ $DIRECTION == "both" || $DIRECTION == "push" ]]; then
+    if [[ $MODE != "watch" && $DELETE_PUSH_UNSAFE == "true" ]]; then
       log_warn "DELETE_PUSH_UNSAFE: applying a blanket --delete on push"
       local -a popts=()
       mapfile -t popts < <(build_push_opts)
-      popts+=( --delete-after )
-      (( MAX_DELETE >= 0 )) && popts+=( --max-delete="$MAX_DELETE" )
+      popts+=(--delete-after)
+      ((MAX_DELETE >= 0)) && popts+=(--max-delete="$MAX_DELETE")
       run_rsync "push-delete" "$(local_endpoint)" "$(remote_endpoint)" "${popts[@]}" || true
-    elif [[ "$MODE" != "watch" ]]; then
+    elif [[ $MODE != "watch" ]]; then
       log_debug "one-shot run: push-side deletion limited to the journal"
     fi
   fi
@@ -1659,7 +1737,7 @@ sync_cycle() {
   prune_old_snapshots
 
   # First successful cycle registers the sentinels.
-  if [[ "$DRY_RUN" != "true" ]] && ! local_sentinel_exists; then
+  if [[ $DRY_RUN != "true" ]] && ! local_sentinel_exists; then
     write_local_sentinel
     write_remote_sentinel || true
   fi
@@ -1674,7 +1752,10 @@ sync_cycle() {
 sync_cycle_locked() {
   local reason="${1:-manual}"
 
-  exec {lock_fd}>"$LOCK_FILE" || { log_error "cannot open lock file: $LOCK_FILE"; return 1; }
+  exec {lock_fd}> "$LOCK_FILE" || {
+    log_error "cannot open lock file: $LOCK_FILE"
+    return 1
+  }
 
   # Non-blocking: if a cycle is already running, the trigger is dropped rather
   # than queued. The event that caused it will be covered by the running cycle
@@ -1710,17 +1791,23 @@ build_inotify_exclude_regex() {
 
   # Always ignore our own state dir; otherwise writing the log or the trash
   # would trigger a sync, which would write the log again -> feedback loop.
-  parts+=( "/\\.sync(/|$)" )
-  parts+=( "/${CONF_NAME//./\\.}$" )
+  parts+=("/\\.sync(/|$)")
+  parts+=("/${CONF_NAME//./\\.}$")
 
   local pattern
   for pattern in "${EXCLUDES[@]}"; do
-    [[ -z "$pattern" || "$pattern" == "#"* || "$pattern" == "!"* ]] && continue
+    [[ -z $pattern || $pattern == "#"* || $pattern == "!"* ]] && continue
 
     local p="$pattern"
     local anchored="false" dir_only="false"
-    [[ "$p" == /* ]] && { anchored="true"; p="${p#/}"; }
-    [[ "$p" == */ ]] && { dir_only="true";  p="${p%/}"; }
+    [[ $p == /* ]] && {
+      anchored="true"
+      p="${p#/}"
+    }
+    [[ $p == */ ]] && {
+      dir_only="true"
+      p="${p%/}"
+    }
 
     # Escape regex metacharacters, then convert glob wildcards.
     # Order matters: escape first so "." becomes "\." before "*" becomes ".*".
@@ -1735,23 +1822,23 @@ build_inotify_exclude_regex() {
     re="${re//\$/\\\$}"
     re="${re//\{/\\\{}"
     re="${re//\}/\\\}}"
-    re="${re//\?/.}"           # glob ? -> any single char
-    re="${re//\*/[^/]*}"       # glob * -> anything but a slash
+    re="${re//\?/.}"     # glob ? -> any single char
+    re="${re//\*/[^/]*}" # glob * -> anything but a slash
 
-    if [[ "$anchored" == "true" ]]; then
+    if [[ $anchored == "true" ]]; then
       # Anchored at the sync root: match only just below LOCAL_DIR.
       local root_re="${LOCAL_DIR//./\\.}"
-      if [[ "$dir_only" == "true" ]]; then
-        parts+=( "^${root_re}/${re}(/|$)" )
+      if [[ $dir_only == "true" ]]; then
+        parts+=("^${root_re}/${re}(/|$)")
       else
-        parts+=( "^${root_re}/${re}$" )
+        parts+=("^${root_re}/${re}$")
       fi
     else
       # Unanchored: match at any depth.
-      if [[ "$dir_only" == "true" ]]; then
-        parts+=( "/${re}(/|$)" )
+      if [[ $dir_only == "true" ]]; then
+        parts+=("/${re}(/|$)")
       else
-        parts+=( "/${re}$" )
+        parts+=("/${re}$")
       fi
     fi
   done
@@ -1799,7 +1886,7 @@ start_local_watcher() {
     --event attrib \
     --exclude "$exclude_re" \
     --format '%e|%w%f' \
-    "$LOCAL_DIR" >"$fifo_in" 2>/dev/null &
+    "$LOCAL_DIR" > "$fifo_in" 2> /dev/null &
 
   local inotify_pid=$!
   WATCHER_PIDS+=("$inotify_pid")
@@ -1812,17 +1899,17 @@ start_local_watcher() {
       # MOVED_FROM means the file left this path, which is a delete from the
       # remote's point of view.
       case "$events" in
-        *DELETE*|*MOVED_FROM*)
+        *DELETE* | *MOVED_FROM*)
           # Path relative to the sync root. No `local` here: this loop body
           # runs in a subshell, not inside a function.
           rel="${path#"$LOCAL_DIR"/}"
-          if [[ -n "$rel" && "$rel" != "$path" ]]; then
-            printf '%s\n' "$rel" >>"$DELETE_JOURNAL" 2>/dev/null || true
+          if [[ -n $rel && $rel != "$path" ]]; then
+            printf '%s\n' "$rel" >> "$DELETE_JOURNAL" 2> /dev/null || true
           fi
           ;;
       esac
-      printf 'local|%s|%s\n' "$events" "$path" >"$EVENT_FIFO" 2>/dev/null || break
-    done <"$fifo_in"
+      printf 'local|%s|%s\n' "$events" "$path" > "$EVENT_FIFO" 2> /dev/null || break
+    done < "$fifo_in"
   ) &
 
   local reader_pid=$!
@@ -1833,8 +1920,11 @@ start_local_watcher() {
 # Does the remote have inotifywait? Determines whether REMOTE_WATCH="inotify"
 # is actually usable, or must fall back to polling.
 remote_has_inotifywait() {
-  [[ -z "$REMOTE" ]] && { command -v inotifywait >/dev/null 2>&1; return $?; }
-  ssh_cmd "command -v inotifywait >/dev/null 2>&1" >/dev/null 2>&1
+  [[ -z $REMOTE ]] && {
+    command -v inotifywait > /dev/null 2>&1
+    return $?
+  }
+  ssh_cmd "command -v inotifywait >/dev/null 2>&1" > /dev/null 2>&1
 }
 
 # Remote watcher, inotify flavour: run inotifywait on the far side over ssh and
@@ -1856,12 +1946,12 @@ start_remote_inotify_watcher() {
   (
     # If the ssh stream dies (network drop, remote reboot) retry with a delay
     # rather than silently losing remote change detection for good.
-    while [[ "$SHUTTING_DOWN" != "true" ]]; do
-      ssh_cmd "$remote_cmd" 2>/dev/null |
-      while IFS='|' read -r events path; do
-        printf 'remote|%s|%s\n' "$events" "$path" >"$EVENT_FIFO" 2>/dev/null || break
-      done
-      [[ "$SHUTTING_DOWN" == "true" ]] && break
+    while [[ $SHUTTING_DOWN != "true" ]]; do
+      ssh_cmd "$remote_cmd" 2> /dev/null |
+        while IFS='|' read -r events path; do
+          printf 'remote|%s|%s\n' "$events" "$path" > "$EVENT_FIFO" 2> /dev/null || break
+        done
+      [[ $SHUTTING_DOWN == "true" ]] && break
       log_warn "remote inotify stream ended; reconnecting in 10s"
       sleep 10
     done
@@ -1876,10 +1966,10 @@ start_remote_inotify_watcher() {
 # seconds and let the cycle's pull discover any remote change.
 start_remote_poll_watcher() {
   (
-    while [[ "$SHUTTING_DOWN" != "true" ]]; do
+    while [[ $SHUTTING_DOWN != "true" ]]; do
       sleep "$REMOTE_POLL_INTERVAL"
-      [[ "$SHUTTING_DOWN" == "true" ]] && break
-      printf 'poll|TIMER|remote\n' >"$EVENT_FIFO" 2>/dev/null || break
+      [[ $SHUTTING_DOWN == "true" ]] && break
+      printf 'poll|TIMER|remote\n' > "$EVENT_FIFO" 2> /dev/null || break
     done
   ) &
 
@@ -1889,13 +1979,13 @@ start_remote_poll_watcher() {
 }
 
 start_remote_watcher() {
-  if [[ "$REMOTE_WATCH" == "inotify" ]]; then
+  if [[ $REMOTE_WATCH == "inotify" ]]; then
     if remote_has_inotifywait; then
       start_remote_inotify_watcher
       return 0
     fi
     log_warn "REMOTE_WATCH=inotify but inotifywait is not on the remote."
-    log_warn "Install it there (e.g. sudo apt install inotify-tools), or set REMOTE_WATCH=\"poll\"."
+    log_warn 'Install it there (e.g. sudo apt install inotify-tools), or set REMOTE_WATCH="poll".'
     log_warn "Falling back to polling."
   fi
   start_remote_poll_watcher
@@ -1904,13 +1994,16 @@ start_remote_watcher() {
 # Safety-net timer: a periodic full sync catches anything the watchers missed
 # (inotify queue overflow on a busy tree, events during a dropped connection).
 start_periodic_watcher() {
-  (( PERIODIC_FULL_SYNC == 0 )) && { log_debug "periodic full sync disabled"; return 0; }
+  ((PERIODIC_FULL_SYNC == 0)) && {
+    log_debug "periodic full sync disabled"
+    return 0
+  }
 
   (
-    while [[ "$SHUTTING_DOWN" != "true" ]]; do
+    while [[ $SHUTTING_DOWN != "true" ]]; do
       sleep "$PERIODIC_FULL_SYNC"
-      [[ "$SHUTTING_DOWN" == "true" ]] && break
-      printf 'periodic|TIMER|full\n' >"$EVENT_FIFO" 2>/dev/null || break
+      [[ $SHUTTING_DOWN == "true" ]] && break
+      printf 'periodic|TIMER|full\n' > "$EVENT_FIFO" 2> /dev/null || break
     done
   ) &
 
@@ -1940,7 +2033,7 @@ watch_loop() {
 
   # Hold the FIFO open read-write for the whole run. Without this the reader
   # would see EOF every time the last writer closed, and the loop would spin.
-  exec {fifo_fd}<>"$EVENT_FIFO"
+  exec {fifo_fd}<> "$EVENT_FIFO"
 
   start_local_watcher
   start_remote_watcher
@@ -1957,12 +2050,12 @@ watch_loop() {
 
   local pending="false" trigger="" line
   while true; do
-    if [[ "$pending" == "true" ]]; then
+    if [[ $pending == "true" ]]; then
       # In a burst: wait only DEBOUNCE_SECONDS for the next event. A timeout
       # means the burst has ended, so sync now.
       if read -r -t "$DEBOUNCE_SECONDS" -u "$fifo_fd" line; then
         log_debug "event during debounce: $line"
-        continue                     # restart the quiet period
+        continue # restart the quiet period
       fi
       pending="false"
       sync_cycle_locked "$trigger" || log_warn "sync cycle reported problems"
@@ -1974,7 +2067,7 @@ watch_loop() {
         log_debug "event: $line"
 
         case "$source" in
-          poll|periodic)
+          poll | periodic)
             # Timer ticks need no debouncing.
             sync_cycle_locked "$source" || log_warn "sync cycle reported problems"
             ;;
@@ -1994,7 +2087,7 @@ watch_loop() {
 
 cleanup() {
   local exit_code=$?
-  [[ "$SHUTTING_DOWN" == "true" ]] && return
+  [[ $SHUTTING_DOWN == "true" ]] && return
   SHUTTING_DOWN="true"
 
   # Terminate the watcher subshells and everything they spawned. The negative
@@ -2002,40 +2095,41 @@ cleanup() {
   # inotifywait (a child of the subshell) rather than orphaning it.
   local pid
   for pid in "${WATCHER_PIDS[@]:-}"; do
-    [[ -z "$pid" ]] && continue
-    kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+    [[ -z $pid ]] && continue
+    kill -TERM "-$pid" 2> /dev/null || kill -TERM "$pid" 2> /dev/null || true
   done
 
   # Reap them briefly, then insist.
   local waited=0
-  while (( waited < 3 )); do
+  while ((waited < 3)); do
     local alive="false"
     for pid in "${WATCHER_PIDS[@]:-}"; do
-      [[ -z "$pid" ]] && continue
-      kill -0 "$pid" 2>/dev/null && alive="true"
+      [[ -z $pid ]] && continue
+      kill -0 "$pid" 2> /dev/null && alive="true"
     done
-    [[ "$alive" == "false" ]] && break
-    sleep 1; (( waited++ ))
+    [[ $alive == "false" ]] && break
+    sleep 1
+    ((waited++))
   done
   for pid in "${WATCHER_PIDS[@]:-}"; do
-    [[ -z "$pid" ]] && continue
-    kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+    [[ -z $pid ]] && continue
+    kill -KILL "-$pid" 2> /dev/null || kill -KILL "$pid" 2> /dev/null || true
   done
 
   # Close the shared ssh master so no socket is left behind.
-  if [[ -n "$REMOTE" && "$SSH_MULTIPLEXING" == "true" ]]; then
+  if [[ -n $REMOTE && $SSH_MULTIPLEXING == "true" ]]; then
     local -a opts=()
-    mapfile -t opts < <(build_ssh_opts 2>/dev/null) || true
-    ssh "${opts[@]}" -O exit "$REMOTE" 2>/dev/null || true
+    mapfile -t opts < <(build_ssh_opts 2> /dev/null) || true
+    ssh "${opts[@]}" -O exit "$REMOTE" 2> /dev/null || true
   fi
 
-  [[ -n "$EVENT_FIFO" && -p "$EVENT_FIFO" ]] && rm -f "$EVENT_FIFO"
-  [[ -n "$STATE_DIR" && -p "$STATE_DIR/inotify.raw" ]] && rm -f "$STATE_DIR/inotify.raw"
+  [[ -n $EVENT_FIFO && -p $EVENT_FIFO ]] && rm -f "$EVENT_FIFO"
+  [[ -n $STATE_DIR && -p "$STATE_DIR/inotify.raw" ]] && rm -f "$STATE_DIR/inotify.raw"
 
   # Deliberately NOT removed: .sync/pending-deletes (a journal that survives a
   # restart), the log, the trash and the conflict snapshots.
 
-  if (( exit_code == 0 )); then
+  if ((exit_code == 0)); then
     log_info "stopped cleanly"
   else
     log_warn "stopped with exit code $exit_code"
@@ -2065,7 +2159,7 @@ print_summary() {
     none) delete_desc="disabled" ;;
   esac
 
-  cat >&2 <<EOF
+  cat >&2 << EOF
 
 ${C_GREEN}=== configuration ===${C_RESET}
   config file     $CONF_FILE
@@ -2086,14 +2180,14 @@ ${C_GREEN}=== policy ===${C_RESET}
 ${C_GREEN}=== transfer ===${C_RESET}
   checksum        xxh128
   compression     lz4
-  transport       $( [[ -n "$REMOTE" ]] && echo "ssh (multiplexing=${SSH_MULTIPLEXING})" || echo "local filesystem" )
+  transport       $([[ -n $REMOTE ]] && echo "ssh (multiplexing=${SSH_MULTIPLEXING})" || echo "local filesystem")
   bandwidth cap   ${BWLIMIT:-unlimited}
   excludes        ${#EXCLUDES[@]} pattern(s)
 
 ${C_GREEN}=== watching ===${C_RESET}
-  remote watch    ${REMOTE_WATCH}$( [[ "$REMOTE_WATCH" == "poll" ]] && echo " (every ${REMOTE_POLL_INTERVAL}s)" )
+  remote watch    ${REMOTE_WATCH}$([[ $REMOTE_WATCH == "poll" ]] && echo " (every ${REMOTE_POLL_INTERVAL}s)")
   debounce        ${DEBOUNCE_SECONDS}s
-  periodic sync   $( (( PERIODIC_FULL_SYNC > 0 )) && echo "every ${PERIODIC_FULL_SYNC}s" || echo "disabled" )
+  periodic sync   $( ((PERIODIC_FULL_SYNC > 0)) && echo "every ${PERIODIC_FULL_SYNC}s" || echo "disabled")
 
 EOF
 }
@@ -2109,10 +2203,10 @@ run_check() {
   remote_sentinel_exists && r="present"
   log_info "sentinel: local=$l remote=$r"
 
-  if [[ "$l" == "missing" && "$r" == "missing" ]]; then
+  if [[ $l == "missing" && $r == "missing" ]]; then
     log_warn "neither side is registered yet; the first real run needs --force-first-run"
     log_warn "(preview it first with --once --dry-run)"
-  elif [[ "$l" != "$r" ]]; then
+  elif [[ $l != "$r" ]]; then
     log_error "sentinels are ASYMMETRIC -- a normal run would refuse to start."
     log_error "Check both paths in $CONF_NAME and that every filesystem is mounted."
     return "$EX_SAFETY"
@@ -2123,12 +2217,12 @@ run_check() {
   local saved="$DRY_RUN"
   DRY_RUN="true"
   local -a common=() filters=() popts=()
-  mapfile -t common  < <(build_common_opts)
+  mapfile -t common < <(build_common_opts)
   mapfile -t filters < <(build_filter_opts)
-  mapfile -t popts   < <(build_pull_opts)
+  mapfile -t popts < <(build_pull_opts)
   local out
   out="$(rsync "${common[@]}" "${filters[@]}" "${popts[@]}" \
-         "$(remote_endpoint)" "$(local_endpoint)" 2>&1)" || true
+    "$(remote_endpoint)" "$(local_endpoint)" 2>&1)" || true
   DRY_RUN="$saved"
   log_info "pull would apply $(count_itemized_changes "$out") change(s)"
 
@@ -2172,7 +2266,7 @@ main() {
     watch)
       check_connection
       check_sentinels
-      watch_loop      # never returns; exits via the signal handler
+      watch_loop # never returns; exits via the signal handler
       ;;
     *)
       die "$EX_CONFIG" "unknown mode: $MODE"
