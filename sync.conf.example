@@ -1,0 +1,313 @@
+#!/hint/bash
+# shellcheck shell=bash disable=SC2034
+# =============================================================================
+#  sync.conf  --  configuration for sync.sh (bidirectional rsync+inotify sync)
+# =============================================================================
+#
+#  LOCATION
+#    This file must live in the ROOT OF THE LOCAL FOLDER BEING SYNCED.
+#    Its own directory *is* the local sync root -- there is no LOCAL_DIR
+#    setting, because the location of this file defines it.
+#
+#      /home/me/project/sync.conf   ->  local sync root is /home/me/project
+#
+#    sync.conf itself, and the .sync/ state directory, are always excluded
+#    from transfer and protected from deletion, so they never propagate to
+#    the remote and are never removed by a --delete pass.
+#
+#  SYNTAX
+#    Plain bash. It is sourced by sync.sh, so you may use $VARIABLES,
+#    command substitution, arrays, and comments. Keep it simple: a stray
+#    syntax error here stops the sync.
+#
+#  AFTER EDITING
+#    Validate without touching any files:   ./sync.sh --dir /path/to/root --check
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# 1. CONNECTION
+# -----------------------------------------------------------------------------
+
+# SSH destination for the remote side, "[user@]host".
+# May be a Host alias from ~/.ssh/config -- if so, leave REMOTE_PORT and
+# SSH_KEY empty and let ssh_config supply them.
+#
+# Special case: set REMOTE="" to sync between two LOCAL paths (no ssh at all).
+# Useful for testing, or for syncing to a mounted drive.
+REMOTE="user@example.com"
+
+# Absolute path of the directory on the remote host.
+# No trailing slash needed; the script normalises it.
+REMOTE_DIR="/srv/project"
+
+# SSH port. Empty = ssh default (22, or whatever ssh_config says).
+REMOTE_PORT=""
+
+# Path to a private key. Empty = let ssh pick (agent, ssh_config, defaults).
+SSH_KEY=""
+
+# Extra raw options appended to the ssh command line.
+# Example: SSH_EXTRA_OPTS=( -o "StrictHostKeyChecking=accept-new" )
+
+
+# -----------------------------------------------------------------------------
+# 2. EXCLUDES
+# -----------------------------------------------------------------------------
+#
+# Glob patterns in rsync filter syntax. Applied in BOTH directions, and also
+# translated into an inotify exclude regex so the watcher ignores the same
+# paths it would not sync.
+#
+#   Pattern rules (rsync):
+#     "*.log"           any file ending .log, at any depth
+#     "build/"          a directory named build, at any depth (trailing / = dir)
+#     "/build/"         only build/ at the sync ROOT (leading / anchors)
+#     "*"               matches within one path segment (does not cross /)
+#     "**"              matches across / as well
+#     "!important.log"  negated: re-include something a later pattern excluded
+#
+# Excluded paths on the receiving side are PROTECTED from --delete: they will
+# not be removed just because the sender lacks them.
+#
+EXCLUDES=(
+  # --- version control ---
+  ".git/"
+  ".svn/"
+  ".hg/"
+
+  # --- dependencies / build output ---
+  "node_modules/"
+  "__pycache__/"
+  "*.pyc"
+  "/build/"
+  "/dist/"
+  ".venv/"
+
+  # --- editor & OS cruft ---
+  "*.swp"
+  "*.swo"
+  "*~"
+  ".#*"
+  ".DS_Store"
+  "Thumbs.db"
+
+  # --- transient ---
+  "*.tmp"
+  "*.part"
+  "*.crdownload"
+  "core"
+)
+
+
+# -----------------------------------------------------------------------------
+# 3. REMOTE PERMISSIONS / OWNERSHIP
+# -----------------------------------------------------------------------------
+#
+# Applied to the PUSH direction only (local -> remote). They shape what lands
+# on the remote without altering your local files.
+
+# rsync --chmod. Empty = keep source permissions.
+#   "D755,F644"  directories 755, files 644   (typical web/app deploy)
+#   "Dg+s,ug+w"  symbolic forms also work
+REMOTE_CHMOD="D755,F644"
+
+# rsync --chown as "USER:GROUP", "USER:", or ":GROUP". Empty = no remapping.
+# Requires privileges on the remote (root, or a sudo'd rsync via REMOTE_RSYNC).
+REMOTE_CHOWN=""
+
+# Preserve owner/group on transfer. Both normally need remote root.
+# Leave "false" for an unprivileged remote account, otherwise every run
+# emits "failed to set times/ownership" noise.
+PRESERVE_OWNER="false"
+PRESERVE_GROUP="true"
+
+# Remote rsync command. Use this to gain privileges for chown:
+#   REMOTE_RSYNC="sudo rsync"
+# (needs a passwordless sudo rule for rsync on the remote)
+REMOTE_RSYNC=""
+
+
+# -----------------------------------------------------------------------------
+# 4. CONFLICT RESOLUTION  --  REMOTE ALWAYS WINS
+# -----------------------------------------------------------------------------
+#
+# A conflict is: the same path changed on BOTH sides between two sync cycles.
+#
+# How the policy is enforced:
+#   * Each cycle runs PULL first, then PUSH.
+#   * PULL (remote->local) does NOT use --update, so any differing file is
+#     overwritten by the remote copy. The remote therefore wins outright.
+#   * PUSH (local->remote) DOES use --update, so it can never overwrite a
+#     remote file whose mtime is newer.
+#
+# The losing local copy is not destroyed -- it is moved into
+# .sync/conflicts/<timestamp>/ (when CONFLICT_BACKUP=true) so you can recover
+# or diff it afterwards.
+
+# Keep a copy of local files that lost a conflict.
+CONFLICT_BACKUP="true"
+
+# How conflicts are DETECTED on pull:
+#   "checksum" - compare content with xxh128. Correct across hosts with
+#                unsynced clocks or differing filesystem timestamp precision.
+#                Costs a read of both copies.
+#   "quick"    - rsync default: size + mtime. Much faster on large trees,
+#                but can miss a same-size, same-mtime edit.
+PULL_COMPARE="checksum"
+
+
+# -----------------------------------------------------------------------------
+# 5. DELETION  --  BIDIRECTIONAL, CONFINED TO THE SYNC TREE
+# -----------------------------------------------------------------------------
+#
+#   "both" - deletions propagate in both directions (default)
+#   "pull" - only remote deletions are applied locally
+#   "push" - only local deletions are applied remotely
+#   "none" - nothing is ever deleted
+#
+# How a bidirectional delete avoids eating NEW files:
+#   rsync alone cannot tell "new on this side" from "deleted on the other
+#   side" -- both look like "present here, absent there". A naive --delete in
+#   both directions destroys newly created files.
+#
+#   So the push direction does NOT use a blanket --delete. The inotify watcher
+#   records every local delete/move-out into .sync/pending-deletes, and the
+#   push removes ONLY those recorded paths. New local files are never
+#   mistaken for remote deletions.
+#
+#   The pull direction uses a real --delete, since the remote is authoritative.
+#
+#   Caveat: with --once (no watcher) there is no journal for that run, so
+#   push-side deletion is skipped unless DELETE_PUSH_UNSAFE=true.
+DELETE_MODE="both"
+
+# Allow --once runs to use a blanket --delete on push, with no journal.
+# DANGEROUS: any remote file missing locally is deleted, even if it was just
+# created remotely. Only for one-way "make remote match local exactly" jobs.
+DELETE_PUSH_UNSAFE="false"
+
+# Safety cap on deletions per rsync invocation.
+#   >0  stop deleting past this many, warn, exit 25
+#    0  delete nothing, only report what would go
+#   -1  no limit (not recommended)
+# A sudden huge delete count almost always means a wrong path or an
+# unmounted filesystem, not a real intent to erase everything.
+MAX_DELETE="100"
+
+# Move deletions to .sync/trash/<timestamp>/ instead of unlinking them.
+TRASH_ENABLED="true"
+
+# Prune trash/conflict snapshots older than this many days (0 = keep forever).
+TRASH_KEEP_DAYS="14"
+
+
+# -----------------------------------------------------------------------------
+# 6. SYMLINKS
+# -----------------------------------------------------------------------------
+#
+# Symlinks are ALWAYS copied as symlinks, never dereferenced: the script uses
+# --links and deliberately omits --copy-links/--copy-dirlinks/--keep-dirlinks.
+#
+# Omitting --keep-dirlinks is also the main reason deletion cannot escape the
+# tree: if one side has a symlink to a directory somewhere outside, rsync
+# replaces that symlink in-tree rather than descending through it, so a
+# --delete pass can never reach the link target's contents.
+
+# Extra hardening: make the receiver skip symlinks that point outside the
+# tree, and all absolute symlinks.
+#   "false" - replicate every symlink verbatim (default; still safe, because
+#             an unsafe symlink is copied as an inert link, never followed)
+#   "true"  - refuse to create out-of-tree symlinks at all. Note this also
+#             blocks legitimate absolute symlinks.
+SAFE_LINKS="false"
+
+# Preserve hardlink groups as hardlinks. Costs memory on very large trees.
+PRESERVE_HARDLINKS="true"
+
+
+# -----------------------------------------------------------------------------
+# 7. CHANGE DETECTION
+# -----------------------------------------------------------------------------
+
+# How remote changes are noticed. inotify is a local-kernel API and cannot
+# watch a remote filesystem, so:
+#   "poll"    - re-pull every REMOTE_POLL_INTERVAL seconds. No remote
+#               dependency. Latency up to that interval.
+#   "inotify" - run inotifywait over ssh on the remote and stream events
+#               back. Near-instant, needs inotify-tools on the remote.
+#               Falls back to poll automatically if it is missing.
+REMOTE_WATCH="poll"
+
+# Seconds between polls when REMOTE_WATCH="poll".
+REMOTE_POLL_INTERVAL="30"
+
+# Quiet period after the last filesystem event before syncing. Editors emit
+# many events per save, so this coalesces a burst into one run.
+DEBOUNCE_SECONDS="2"
+
+# Safety-net full sync every N seconds even with no events (0 = off).
+# Catches anything inotify missed (queue overflow, remote-side edits when
+# using poll on a busy tree).
+PERIODIC_FULL_SYNC="300"
+
+
+# -----------------------------------------------------------------------------
+# 8. SAFETY GATES
+# -----------------------------------------------------------------------------
+
+# Require a marker file .sync/.sync-root on BOTH sides before syncing.
+# This is what stops the classic disaster: an unmounted drive or a typo'd
+# path presents an empty directory, and --delete faithfully mirrors that
+# emptiness onto the other side. No marker -> refuse to run.
+# Created automatically on first successful run.
+REQUIRE_SENTINEL="true"
+
+# Abort if a single cycle would change more than this many files
+# (0 = no limit). Catches mass permission changes, accidental chmod -R, etc.
+MAX_CHANGES_PER_CYCLE="0"
+
+
+# -----------------------------------------------------------------------------
+# 9. PERFORMANCE / TRANSPORT
+# -----------------------------------------------------------------------------
+#
+# Checksums use xxh128 and compression uses lz4 (both required, both verified
+# at startup against `rsync --version`).
+
+# Bandwidth ceiling, rsync --bwlimit syntax ("5m", "500k"). Empty = unlimited.
+BWLIMIT=""
+
+# Reuse one ssh connection for every rsync in a cycle. Strongly recommended:
+# an event-driven syncer makes many short connections and would otherwise pay
+# a full TCP+auth handshake each time.
+SSH_MULTIPLEXING="true"
+
+# Write partial transfers to .sync/partial/ so an interrupted big file
+# resumes instead of restarting.
+PARTIAL_TRANSFERS="true"
+
+# Per-rsync timeout in seconds (0 = none). Stops a dead connection from
+# wedging the sync loop forever.
+RSYNC_TIMEOUT="300"
+
+
+# -----------------------------------------------------------------------------
+# 10. LOGGING
+# -----------------------------------------------------------------------------
+
+# Log file, relative to the sync root (inside .sync/, so never synced).
+LOG_FILE=".sync/sync.log"
+
+# error | warn | info | debug
+LOG_LEVEL="info"
+
+# Rotate the log once it exceeds this many KB (0 = never).
+LOG_MAX_KB="5120"
+
+# Never modify anything; log what would happen. Same as --dry-run.
+DRY_RUN="false"
+
+
+
+SSH_EXTRA_OPTS=()

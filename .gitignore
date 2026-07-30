@@ -1,0 +1,6 @@
+# Per-checkout sync configuration (contains host/path details).
+# Start from sync.conf.example instead.
+sync.conf
+
+# Runtime state of a sync root
+.sync/
