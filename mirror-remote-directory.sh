@@ -1746,6 +1746,80 @@ sync_cycle() {
   return 0
 }
 
+# Pause all watcher processes (inotifywait, ssh tails) so they stop producing
+# events while a sync cycle is running. This prevents the event FIFO from
+# filling with events that will become stale after the sync completes.
+pause_watchers() {
+  [[ ${#WATCHER_PIDS[@]} -eq 0 ]] && return 0
+
+  local count=0
+  for pid in "${WATCHER_PIDS[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      log_debug "pausing watcher pid $pid"
+      kill -STOP "$pid" 2>/dev/null || true
+      count=$((count + 1))
+    else
+      log_debug "watcher pid $pid no longer exists (not pausing)"
+    fi
+  done
+
+  # Drain the FIFO to discard events that were buffered while watchers were
+  # running but are about to become stale after the sync completes.
+  # We use cat with a short timeout to avoid blocking forever.
+  if [[ -p "$EVENT_FIFO" ]]; then
+    cat "$EVENT_FIFO" &>/dev/null &
+    local drain_pid=$!
+    local drain_timeout=2  # seconds
+    local drain_elapsed=0
+    while kill -0 "$drain_pid" 2>/dev/null && [[ $drain_elapsed -lt $drain_timeout ]]; do
+      sleep 0.5
+      drain_elapsed=$((drain_elapsed + 1))
+    done
+    # If the drain is still running after timeout, terminate it.
+    kill "$drain_pid" 2>/dev/null && wait "$drain_pid" 2>/dev/null || true
+    log_debug "drained event FIFO after pausing watchers"
+  fi
+
+  log_info "paused $count watcher(s); will resume after sync"
+}
+
+# Resume previously paused watchers and drain any events they accumulated
+# while paused, so stale events don't trigger spurious sync cycles.
+resume_watchers() {
+  [[ ${#WATCHER_PIDS[@]} -eq 0 ]] && return 0
+
+  local count=0
+  for pid in "${WATCHER_PIDS[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      log_debug "resuming watcher pid $pid"
+      kill -CONT "$pid" 2>/dev/null || true
+      count=$((count + 1))
+    fi
+  done
+
+  # Brief pause so watchers can flush any buffered writes to the FIFO before
+  # we drain. This ensures we discard events that arrived during the sync
+  # but were written to the FIFO while watchers were paused.
+  sleep 0.3
+
+  # Drain the FIFO again to discard events that accumulated while watchers
+  # were paused (now written to the FIFO after resume).
+  if [[ -p "$EVENT_FIFO" ]]; then
+    cat "$EVENT_FIFO" &>/dev/null &
+    local drain_pid=$!
+    local drain_timeout=2
+    local drain_elapsed=0
+    while kill -0 "$drain_pid" 2>/dev/null && [[ $drain_elapsed -lt $drain_timeout ]]; do
+      sleep 0.5
+      drain_elapsed=$((drain_elapsed + 1))
+    done
+    kill "$drain_pid" 2>/dev/null && wait "$drain_pid" 2>/dev/null || true
+    log_debug "drained event FIFO after resuming watchers"
+  fi
+
+  log_info "resumed $count watcher(s); drained stale events"
+}
+
 # Serialise cycles with flock. inotify bursts and the poll timer can both fire
 # at once; two concurrent rsyncs over the same tree would race (and could
 # double-apply deletions), so only one cycle runs at a time.
@@ -1766,8 +1840,14 @@ sync_cycle_locked() {
     return 0
   fi
 
+  # Pause watchers before sync to prevent stale events from triggering cycles
+  pause_watchers
+
   local rc=0
   sync_cycle "$reason" || rc=$?
+
+  # Resume watchers and drain any events accumulated while paused
+  resume_watchers
 
   exec {lock_fd}>&-
   return "$rc"
