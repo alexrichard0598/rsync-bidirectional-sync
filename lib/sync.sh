@@ -43,15 +43,19 @@ remote_endpoint() {
 local_endpoint() { printf '%s/' "$LOCAL_DIR"; }
 
 # Count real changes in rsync's --itemize-changes output. Lines starting with
-# ">f" / "<f" / "cd" etc. are changes; "." in the first two columns means
-# "nothing changed but attributes", and deletions are reported as "*deleting".
+# ">f" / "<f" / "cd" etc. are changes; "." in the first column means
+# "nothing changed but attributes" (e.g. ".d..t...... somedir/") and must not
+# be counted. Deletions are reported as "*deleting".
 count_itemized_changes() {
   local output="$1"
   # `grep -c` exits 1 when it matches nothing, which under `set -e` needs the
   # `|| true`. Using `|| echo 0` here would print a SECOND line ("0\n0") and
   # break the arithmetic contexts that consume this value.
+  # The character class [<>ch] matches the first column of genuine change
+  # markers (add/remove/change/modify/hardlink). The "." wildcard is intentionally
+  # omitted — attribute-only lines start with "." and should not be counted.
   local n
-  n="$(grep -cE '^([<>ch.*][fdLDS]|\*deleting)' <<< "$output" 2> /dev/null || true)"
+  n="$(grep -cE '^([<>ch][fdLDS]|\*deleting)' <<< "$output" 2> /dev/null || true)"
   # Strip anything non-numeric (empty output, stray whitespace) and default to 0.
   n="${n//[^0-9]/}"
   printf '%s' "${n:-0}"

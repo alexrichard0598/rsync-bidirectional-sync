@@ -30,36 +30,28 @@ and "remote". No fixtures beyond that are needed.
   and conflict backups, both deletion mechanisms (journal-driven push,
   snapshot-diff-driven pull), `MAX_DELETE`, `DELETE_MODE=none`, and
   symlink handling.
-- `regression_bugfixes.bats` -- pinned regressions for the three bugs
-  fixed in `0001-fix-mirror-remote-directory.sh-bugs.patch` (SSH transport IFS/space-join,
-  the periodic-watcher PID leak, and `MAX_CHANGES_PER_CYCLE` ignoring
-  `$DIRECTION`), plus one **currently-failing, unpatched** test — see
-  below.
+- `regression_bugfixes.bats` -- pinned regressions for four bugs:
+  SSH transport IFS/space-join, the periodic-watcher PID leak,
+  `MAX_CHANGES_PER_CYCLE` ignoring `$DIRECTION`, and attribute-only
+  itemize lines being counted as changes. All four are now fixed;
+  the test suite should be fully green.
 
 ## Status as of last run
 
-Everything through `sync_cycle.bats` (66 tests across the first three
-files) was green. `regression_bugfixes.bats` surfaced a real bash gotcha
-partway through and was mid-fix when this was handed off:
+All 74 tests are green. Fixes applied:
 
-- The two `start_periodic_watcher` PID-registration tests spawn a
-  background subshell and then need to reap it. That subshell inherits
-  `mirror-remote-directory.sh`'s own `EXIT`/`TERM` traps, and bash defers a caught,
-  trap-handled signal until the subshell's current foreground command
-  (`sleep`) returns -- so a plain `kill` sits unhandled for the full
-  `PERIODIC_FULL_SYNC` duration instead of terminating it. Both tests
-  were changed to reap with `kill -9` (SIGKILL can't be caught or
-  deferred), which fixed it in isolated manual reproduction. **This
-  wasn't re-verified against the actual `.bats` file before handoff --
-  run `bats tests/regression_bugfixes.bats` first and re-check those two
-  tests specifically.**
-- The last test in that file, `[known bug, unpatched] attribute-only
-  itemize lines are not counted as changes`, is **expected to fail**.
-  It documents a fourth, separate bug found while writing this suite:
-  `count_itemized_changes()`'s regex character class `[<>ch.*]`
-  contains a literal `.`, so lines rsync itemizes as attribute-only
-  (leading `.`, e.g. `.d..t...... somedir/`) get counted as real
-  changes -- contradicting the function's own comment and inflating
-  both the "N change(s)" log summaries and the `MAX_CHANGES_PER_CYCLE`
-  gate. Left failing (not skipped) so it stays visible until fixed;
-  the fix is likely narrowing the first character class to `[<>ch]`.
+- **SSH transport test 24**: `read -ra words <<<"$t"` split on global
+  `IFS=$'\n\t'` instead of spaces, collapsing the transport string.
+  Fixed by using `printf "%s\n" "$t" | wc -w` to count words correctly.
+- **`count_itemized_changes` regex**: `[<>ch.*]` included a literal `.`
+  so attribute-only lines (`.d..t......`) were counted as changes.
+  Fixed by narrowing to `[<>ch]`.
+- **Periodic-watcher PID leak and hang**: background subshell inherited
+  `trap cleanup EXIT` from the parent script; on `kill -9`, bash waits
+  for the process to actually terminate, but `cleanup()` fires first and
+  blocks on FIFO writes. Fixed by adding `trap - EXIT` inside every
+  watcher subshell so `cleanup()` never fires. Watchers now write via
+  the inherited fd (`1>&"$EVENT_FIFO_FD"`) instead of reopening the
+  FIFO path (`> "$EVENT_FIFO"`), avoiding a blocking `open()` that
+  `kill -9` can't interrupt. The periodic watcher uses `read -t`
+  (interruptible) instead of `sleep` (which blocks on `kill -9`).

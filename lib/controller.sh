@@ -169,12 +169,14 @@ main() {
     once)
       check_connection
       check_sentinels
-      if sync_cycle_locked "once"; then
+      sync_cycle_locked "once"
+      local rc=$?
+      if ((rc == 0)); then
         log_ok "single sync cycle complete"
         exit "$EX_OK"
       fi
       log_error "the sync cycle failed"
-      exit "$EX_RSYNC"
+      exit "$rc"
       ;;
     watch)
       check_connection

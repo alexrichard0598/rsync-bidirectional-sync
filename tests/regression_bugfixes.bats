@@ -36,6 +36,10 @@ setup() {
 
 @test "[bugfix] every built ssh option survives as its own token in the transport string" {
   # shellcheck disable=SC2016
+  # Global IFS=$'\n\t' would cause "read -ra words <<<\"$t\"" to split on
+  # newlines/tabs instead of spaces, collapsing the transport string into a
+  # single-element array. Use wc -w on the captured output to count words
+  # correctly regardless of IFS.
   run_lib '
     REMOTE_PORT="2222"
     SSH_KEY=""
@@ -43,8 +47,7 @@ setup() {
     SSH_CONTROL_PATH="/tmp/ctrl-%C"
     SSH_EXTRA_OPTS=()
     t="$(build_rsync_ssh_transport)"
-    read -ra words <<<"$t"
-    printf "%s\n" "${#words[@]}"
+    printf "%s\n" "$t" | wc -w
   '
   [ "$status" -eq 0 ]
   # ssh, -p, 2222, -o ControlMaster=auto, -o ControlPath=..., -o ControlPersist=120,
@@ -79,33 +82,62 @@ setup() {
   # subshell's current foreground command (sleep) returns -- so a plain
   # SIGTERM here would sit unhandled for the full PERIODIC_FULL_SYNC
   # duration. SIGKILL can't be caught or deferred, so it reaps it at once.
+  #
+  # Use exec {fifo_fd}<> (read-write mode, like watch_loop) so the FIFO stays
+  # open. The fd number is stored in EVENT_FIFO_FD so the watcher subshell can
+  # write via >& "$EVENT_FIFO_FD" instead of reopening the FIFO path (which
+  # would block on open() and hang on kill -9).
+  #
+  # Clear EXIT/TERM traps immediately so cleanup() never fires on subshell exit.
   run_lib '
     STATE_DIR="'"$BATS_TEST_TMPDIR"'"
     EVENT_FIFO="'"$BATS_TEST_TMPDIR"'/events.fifo"
     mkfifo "$EVENT_FIFO"
+    exec {fifo_fd}<> "$EVENT_FIFO"
+    EVENT_FIFO_FD=$fifo_fd
+    trap - EXIT TERM
     PERIODIC_FULL_SYNC=3600
     WATCHER_PIDS=()
     start_periodic_watcher
     printf "%s\n" "${#WATCHER_PIDS[@]}"
     kill -9 "${WATCHER_PIDS[@]}" 2>/dev/null || true
+    exec {fifo_fd}>&-
+    rm -f "$EVENT_FIFO"
   '
   [ "$status" -eq 0 ]
   [ "${lines[0]}" -eq 1 ]
 }
 
 @test "[bugfix] the registered periodic-watcher pid is a real, killable process" {
+  # Use exec {fifo_fd}<> (read-write mode, like watch_loop) so the watcher's
+  # printf never blocks via >& "$EVENT_FIFO_FD" — no background cat reader needed.
+  #
+  # Clear EXIT/TERM traps immediately so cleanup() never fires on subshell exit.
+  #
+  # Disable job control (set +m) so bash doesn't emit a "Killed" diagnostic
+  # for the terminated watcher — that message would otherwise merge into
+  # $output and break the ALIVE assertion.
   run_lib '
+    set +m
     STATE_DIR="'"$BATS_TEST_TMPDIR"'"
     EVENT_FIFO="'"$BATS_TEST_TMPDIR"'/events.fifo"
     mkfifo "$EVENT_FIFO"
+    exec {fifo_fd}<> "$EVENT_FIFO"
+    EVENT_FIFO_FD=$fifo_fd
+    trap - EXIT TERM
     PERIODIC_FULL_SYNC=3600
     WATCHER_PIDS=()
     start_periodic_watcher
     pid="${WATCHER_PIDS[0]}"
     if kill -0 "$pid" 2>/dev/null; then echo ALIVE; else echo DEAD; fi
     kill -9 "$pid" 2>/dev/null || true
+    exec {fifo_fd}>&-
+    rm -f "$EVENT_FIFO"
   '
-  [ "$output" == "ALIVE" ]
+  # bash emits a "Killed" diagnostic for the terminated watcher subshell to stderr,
+  # which bats' `run` merges into $output. Check that ALIVE is present rather
+  # than requiring an exact match (the Killed message spans multiple lines).
+  [[ "$output" == *"ALIVE"* ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -141,21 +173,14 @@ setup() {
 }
 
 # ---------------------------------------------------------------------------
-# Bug 4 (newly found while writing this suite, NOT yet patched):
-# count_itemized_changes()'s own comment states that a leading "." in
-# rsync's itemize-changes output means "nothing changed but attributes" and
-# should not count as a real change. But its regex character class
-# [<>ch.*] includes a literal "." (brackets make it literal, not a
-# wildcard), so attribute-only lines like ".d..t...... somedir/" ARE
-# counted -- contradicting the documented intent and inflating both the
-# "N change(s)" log summaries and the MAX_CHANGES_PER_CYCLE gate.
-#
-# This test is EXPECTED TO FAIL until that regex is fixed (e.g. to
-# [<>ch] for the first character, deletions still matched separately via
-# \*deleting). It's left failing, not skipped, so it stays visible.
+# Bug 4: count_itemized_changes()'s regex character class [<>ch.*] included
+# a literal "." so attribute-only lines like ".d..t...... somedir/" were
+# counted as changes — contradicting the documented intent and inflating
+# both the "N change(s)" log summaries and the MAX_CHANGES_PER_CYCLE gate.
+# Fixed by changing [<>ch.*] to [<>ch].
 # ---------------------------------------------------------------------------
 
-@test "[known bug, unpatched] attribute-only itemize lines are not counted as changes" {
+@test "[bugfix] attribute-only itemize lines are not counted as changes" {
   run_lib 'count_itemized_changes ".d..t...... unchanged-dir/
 .f..t...... unchanged-file.txt"'
   [ "$output" -eq 0 ]

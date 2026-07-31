@@ -195,6 +195,9 @@ start_local_watcher() {
   # Reader: translates raw inotify lines into event-channel messages and
   # journals deletions on the way through.
   (
+    # Watcher subshells must not run cleanup() on exit — the parent owns
+    # that responsibility (stopping watchers, removing FIFOs, etc.).
+    trap - EXIT
     while IFS='|' read -r events path; do
       # Record deletions and move-outs for the push-side delete journal.
       # MOVED_FROM means the file left this path, which is a delete from the
@@ -209,7 +212,7 @@ start_local_watcher() {
           fi
           ;;
       esac
-      printf 'local|%s|%s\n' "$events" "$path" > "$EVENT_FIFO" 2> /dev/null || break
+      printf 'local|%s|%s\n' "$events" "$path" 1>&"$EVENT_FIFO_FD" 2> /dev/null || break
     done < "$fifo_in"
   ) &
 
@@ -245,12 +248,15 @@ start_remote_inotify_watcher() {
 --format '%e|%w%f' $q_dir 2>/dev/null"
 
   (
+    # Watcher subshells must not run cleanup() on exit — the parent owns
+    # that responsibility (stopping watchers, removing FIFOs, etc.).
+    trap - EXIT
     # If the ssh stream dies (network drop, remote reboot) retry with a delay
     # rather than silently losing remote change detection for good.
     while [[ $SHUTTING_DOWN != "true" ]]; do
       ssh_cmd "$remote_cmd" 2> /dev/null |
         while IFS='|' read -r events path; do
-          printf 'remote|%s|%s\n' "$events" "$path" > "$EVENT_FIFO" 2> /dev/null || break
+          printf 'remote|%s|%s\n' "$events" "$path" 1>&"$EVENT_FIFO_FD" 2> /dev/null || break
         done
       [[ $SHUTTING_DOWN == "true" ]] && break
       log_warn "remote inotify stream ended; reconnecting in 10s"
@@ -267,10 +273,13 @@ start_remote_inotify_watcher() {
 # seconds and let the cycle's pull discover any remote change.
 start_remote_poll_watcher() {
   (
+    # Watcher subshells must not run cleanup() on exit — the parent owns
+    # that responsibility (stopping watchers, removing FIFOs, etc.).
+    trap - EXIT
     while [[ $SHUTTING_DOWN != "true" ]]; do
       sleep "$REMOTE_POLL_INTERVAL"
       [[ $SHUTTING_DOWN == "true" ]] && break
-      printf 'poll|TIMER|remote\n' > "$EVENT_FIFO" 2> /dev/null || break
+      printf 'poll|TIMER|remote\n' 1>&"$EVENT_FIFO_FD" 2> /dev/null || break
     done
   ) &
 
@@ -301,11 +310,24 @@ start_periodic_watcher() {
   }
 
   (
+    # Watcher subshells must not run cleanup() on exit — the parent owns
+    # that responsibility (stopping watchers, removing FIFOs, etc.).
+    trap - EXIT
+    # Use a dedicated pipe for the timer instead of sleep, so the subshell
+    # can be killed instantly: read -t is interruptible by signals, whereas
+    # foreground sleep blocks until it finishes even on kill -9.
+    local timer_pipe
+    timer_pipe=$(mktemp -u)
+    mkfifo -m 600 "$timer_pipe"
+    exec {timer_fd}<> "$timer_pipe"
     while [[ $SHUTTING_DOWN != "true" ]]; do
-      sleep "$PERIODIC_FULL_SYNC"
-      [[ $SHUTTING_DOWN == "true" ]] && break
-      printf 'periodic|TIMER|full\n' > "$EVENT_FIFO" 2> /dev/null || break
+      if ! read -r -t "$PERIODIC_FULL_SYNC" -u "$timer_fd" 2> /dev/null; then
+        # Timeout expired — time for a periodic full sync.
+        printf 'periodic|TIMER|full\n' 1>&"$EVENT_FIFO_FD" 2> /dev/null || break
+      fi
     done
+    exec {timer_fd}>&-
+    rm -f "$timer_pipe"
   ) &
 
   local pid=$!
@@ -330,6 +352,7 @@ watch_loop() {
   # Hold the FIFO open read-write for the whole run. Without this the reader
   # would see EOF every time the last writer closed, and the loop would spin.
   exec {fifo_fd}<> "$EVENT_FIFO"
+  EVENT_FIFO_FD=$fifo_fd
 
   start_local_watcher
   start_remote_watcher

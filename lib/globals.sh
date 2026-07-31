@@ -112,6 +112,7 @@ CLI_DIR=""     # set by --dir
 RUN_TS=""       # timestamp for this run's trash/conflict dirs
 WATCHER_PIDS=() # background inotify/poll pids, killed on exit
 EVENT_FIFO=""   # watcher -> main loop event channel
+EVENT_FIFO_FD="" # fd number for $EVENT_FIFO (inherited by watcher subshells)
 SHUTTING_DOWN="false"
 
 # consumed by Sync callers/summaries
