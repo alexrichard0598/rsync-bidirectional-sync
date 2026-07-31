@@ -4,3 +4,6 @@ sync.conf
 
 # Runtime state of a sync root
 .sync/
+
+# Ignore qwen-log.md
+qwen-log.md
