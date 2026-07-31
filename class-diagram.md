@@ -8,10 +8,25 @@ the class that owns it, and each function becomes a method. Bash has no
 enforced visibility, so the `_`-prefix naming convention is treated as
 `private` and everything else as `public`.
 
+The classes below are no longer just a conceptual grouping: the codebase is
+physically split along these lines, one `lib/*.sh` file per class (see
+[Source Layout](#source-layout)). `mirror-remote-directory.sh` itself is now a
+thin entry point that sources `lib/*.sh` in dependency order and calls
+`main`.
+
 ## Diagram
 
 ```mermaid
 classDiagram
+    class Globals {
+        <<deviation: not in original class list>>
+        -SCRIPT_NAME : string
+        -SCRIPT_VERSION : string
+        -EX_OK, EX_CONFIG, EX_DEPS, EX_SAFETY, EX_CONN, EX_RSYNC : int
+        -CONF_NAME, STATE_DIR_NAME, SENTINEL_NAME : string
+        -all config-default and runtime-state variables
+    }
+
     class Controller {
         -MODE : string
         -DIRECTION : string
@@ -167,6 +182,17 @@ classDiagram
 
     Logging *-- LogRotation : owns
 
+    Controller ..> Globals : reads/writes
+    Configuration ..> Globals : reads/writes
+    Validation ..> Globals : reads/writes
+    Logging ..> Globals : reads/writes
+    State ..> Globals : reads/writes
+    Snapshot ..> Globals : reads/writes
+    Connection ..> Globals : reads/writes
+    RsyncOptions ..> Globals : reads/writes
+    Sync ..> Globals : reads/writes
+    Watcher ..> Globals : reads/writes
+
     Configuration ..> Logging : uses
     Validation ..> Logging : uses
 
@@ -195,6 +221,7 @@ classDiagram
 
 | Class | Responsibility |
 |---|---|
+| `Globals` *(deviation)* | Shared constants, config defaults, and runtime state. Not a behavioural class — see [Deviations](#deviations-from-the-diagram). |
 | `Controller` | Top-level orchestrator. Entry point, run mode dispatch (`watch`/`once`/`check`), signal handling, and shutdown/summary reporting. |
 | `Configuration` | Argument parsing and config-file loading; locates `sync.conf` by searching upward from the working directory. |
 | `Validation` | Validates the resolved configuration, sync paths, and required external tool availability/versions. |
@@ -220,3 +247,57 @@ classDiagram
 - Attributes shown are the bash global variables each class reads or writes; the script itself has no formal encapsulation, so this grouping reflects usage patterns rather than enforced scope.
 - `RsyncOptions` depends on `Configuration` for its inputs (excludes, ownership/permission settings) but has no reverse dependency.
 - `Sync` and `Watcher` have a mutual relationship: `Sync` pauses/resumes `Watcher` during a sync cycle, and `Watcher` triggers `Sync` cycles on detected changes.
+
+## Source Layout
+
+`mirror-remote-directory.sh` sources these in order and then calls `main`:
+
+| File | Class(es) |
+|---|---|
+| `lib/globals.sh` | `Globals` |
+| `lib/logging.sh` | `Logging`, `LogRotation` |
+| `lib/config.sh` | `Configuration` |
+| `lib/validation.sh` | `Validation` |
+| `lib/state.sh` | `State` |
+| `lib/connection.sh` | `Connection` |
+| `lib/rsync_options.sh` | `RsyncOptions` |
+| `lib/snapshot.sh` | `Snapshot` |
+| `lib/sync.sh` | `Sync` |
+| `lib/watcher.sh` | `Watcher` |
+| `lib/controller.sh` | `Controller` |
+
+The sourcing order matters for exactly one reason: `lib/globals.sh` must load
+first, because it declares every default/runtime variable that later files
+reference under `set -u`. Beyond that, load order is not load-bearing — every
+function is resolved at call time (after all files are sourced and `main`
+runs), not at source time.
+
+## Deviations from the Diagram
+
+The implementation split follows the diagram closely, with two deliberate
+departures, made for practical reasons specific to bash rather than for
+better OOP fidelity:
+
+1. **`Globals` was added.** Bash has no per-object storage — every "class"
+   here is really a set of functions operating on shared process-global
+   variables. The original diagram folded config defaults and runtime state
+   into `Configuration`'s attribute list, but in practice those globals
+   (exit codes, `SCRIPT_NAME`, sentinel/state-dir names, and every
+   user-configurable and derived-at-runtime variable) are read and written by
+   *all* of the classes, not just `Configuration`. Declaring them once in
+   `lib/globals.sh`, sourced first, avoids `set -u` load-order failures that
+   would appear if each class's own variables were declared in that class's
+   own file (a class sourced before the one owning a variable it reads would
+   crash on an unset variable). This is a concession to bash's lack of
+   namespacing, not a claim that `Globals` is a real behavioural class — it
+   has no methods and isn't a dependency in the OOP sense, which is why its
+   diagram relationships are drawn as dependency (`..>`) from everything
+   else, never composition.
+
+2. **`LogRotation` shares `lib/logging.sh` with `Logging`** rather than
+   getting its own `lib/log_rotation.sh`. It is a single function
+   (`rotate_log_if_needed`) used only alongside `Logging`'s own functions, so
+   a dedicated file would have added a module with no other reader for no
+   maintenance benefit. The diagram still lists `LogRotation` as a distinct
+   class — the composition relationship (`Logging *-- LogRotation`) reflects
+   the code's actual responsibility split even though both live in one file.

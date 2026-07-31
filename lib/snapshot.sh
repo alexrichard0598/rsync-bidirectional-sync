@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  lib/snapshot.sh -- Snapshot (class-diagram.md)
+# =============================================================================
+#  Snapshot-driven deletion for the PULL direction, plus trash/conflict
+#  pruning and the push-side journal.
+#
+#  Why a snapshot is needed:
+#    A plain --delete on the pull removes anything present locally but absent
+#    remotely -- which includes files the user just created locally and has not
+#    pushed yet. rsync cannot distinguish "new on the local side" from "deleted
+#    on the remote side".
+#
+#  How it works:
+#    After every successful cycle a sorted list of remote paths is written to
+#    .sync/remote-snapshot. On the next cycle the current remote listing is
+#    compared against it: a path in the snapshot but no longer on the remote was
+#    genuinely DELETED remotely, so it is removed locally. A path that only
+#    exists locally and was never in the snapshot is simply new, and is left
+#    alone for the push to upload.
+#
+#  Journal-driven deletion for the push direction.
+#
+#  Why not a plain --delete on push?
+#    rsync compares two trees; it cannot distinguish "new here" from "deleted
+#    there" -- both appear as "present on one side only". A blanket --delete on
+#    push would therefore delete every file newly created on the REMOTE, and a
+#    blanket --delete on pull would delete every file newly created LOCALLY.
+#
+#  What happens instead:
+#    The inotify watcher appends every local delete / move-out to
+#    .sync/pending-deletes. The push then removes exactly those paths from the
+#    remote and nothing else, so genuinely new remote files always survive.
+#
+#  Deletion is performed with a targeted `rm` over ssh rather than rsync,
+#  because rsync has no "delete just these paths" mode. Every path is
+#  re-validated against the tree before use.
+# =============================================================================
+
+# Delete trash/conflict snapshots older than TRASH_KEEP_DAYS.
+prune_old_snapshots() {
+  ((TRASH_KEEP_DAYS == 0)) && return 0
+  local base
+  for base in "$STATE_DIR/trash" "$STATE_DIR/conflicts"; do
+    [[ -d $base ]] || continue
+    # -mindepth 1 -maxdepth 1: only the timestamped snapshot dirs themselves.
+    find "$base" -mindepth 1 -maxdepth 1 -type d -mtime "+$TRASH_KEEP_DAYS" \
+      -exec rm -rf {} + 2> /dev/null || true
+  done
+  log_debug "pruned snapshots older than ${TRASH_KEEP_DAYS}d"
+}
+
+# List the remote tree as newline-separated relative paths, honouring the same
+# excludes as the transfer. rsync's own --list-only is used so the filter rules
+# and symlink handling match exactly what a real transfer would see.
+list_remote_paths() {
+  local -a filters=()
+  mapfile -t filters < <(build_filter_opts)
+
+  # A MINIMAL option set is used on purpose. build_common_opts() adds
+  # --itemize-changes (and possibly --verbose), which changes the output format.
+  # Only what is needed to enumerate the tree the same way a real transfer would
+  # is passed: recursion, symlinks-as-symlinks, and the identical filter rules.
+  #
+  # --list-only is NOT used: it ignores --out-format and prints an ls-style
+  # long listing ("perms size date time path -> target"), which is fragile to
+  # parse for names containing spaces or " -> ". A --dry-run against an empty
+  # scratch destination with --out-format='%n' prints one bare path per line.
+  local -a opts=(--recursive --links --dry-run --out-format=%n)
+  [[ $SAFE_LINKS == "true" ]] && opts+=(--safe-links)
+  ((RSYNC_TIMEOUT > 0)) && opts+=(--timeout="$RSYNC_TIMEOUT")
+  if [[ -n $REMOTE ]]; then
+    opts+=(-e "$(build_rsync_ssh_transport)")
+    [[ -n $REMOTE_RSYNC ]] && opts+=(--rsync-path="$REMOTE_RSYNC")
+  fi
+
+  # The scratch destination is only ever read as a name: --dry-run guarantees
+  # nothing is created or written there.
+  local scratch="$STATE_DIR/.listing-scratch"
+
+  # Directories arrive with a trailing slash and the tree root as "./" -- both
+  # are normalised away so the result is a plain sorted list of relative paths.
+  rsync "${opts[@]}" "${filters[@]}" "$(remote_endpoint)" "$scratch/" 2> /dev/null |
+    sed -e 's|/$||' -e '/^\.$/d' -e '/^$/d' |
+    LC_ALL=C sort -u
+}
+
+# Compare the previous remote snapshot with the current listing and remove
+# locally only what genuinely disappeared from the remote.
+apply_remote_deletions() {
+  [[ $DELETE_MODE == "both" || $DELETE_MODE == "pull" ]] || return 0
+
+  local snapshot="$STATE_DIR/remote-snapshot"
+  local current
+  current="$(mktemp "$STATE_DIR/.remote-list.XXXXXX")" || return 0
+
+  if ! list_remote_paths > "$current"; then
+    log_warn "could not list the remote tree; skipping pull-side deletions"
+    rm -f "$current"
+    return 0
+  fi
+
+  # No snapshot yet (first run): record the baseline and delete nothing.
+  if [[ ! -f $snapshot ]]; then
+    [[ $DRY_RUN == "true" ]] || mv -f "$current" "$snapshot"
+    rm -f "$current" 2> /dev/null || true
+    log_debug "remote snapshot initialised; no pull-side deletions on a first run"
+    return 0
+  fi
+
+  # Paths that were in the snapshot but are gone from the remote now.
+  local -a vanished=()
+  mapfile -t vanished < <(LC_ALL=C comm -23 "$snapshot" "$current")
+
+  local -a to_delete=()
+  local rel
+  for rel in "${vanished[@]}"; do
+    [[ -z $rel ]] && continue
+    # Containment: never act on absolute paths, traversal, or our own state.
+    [[ $rel == /* || $rel == *".."* ]] && continue
+    [[ $rel == "$STATE_DIR_NAME"* || $rel == "$CONF_NAME" ]] && continue
+    # Only delete if it still exists locally.
+    [[ -e "$LOCAL_DIR/$rel" || -L "$LOCAL_DIR/$rel" ]] || continue
+    to_delete+=("$rel")
+  done
+
+  if ((${#to_delete[@]} == 0)); then
+    [[ $DRY_RUN == "true" ]] || mv -f "$current" "$snapshot"
+    rm -f "$current" 2> /dev/null || true
+    log_debug "no remote deletions to apply"
+    return 0
+  fi
+
+  # Deletion cap applies here too.
+  if ((MAX_DELETE >= 0 && ${#to_delete[@]} > MAX_DELETE)); then
+    log_error "${#to_delete[@]} remote deletion(s) detected, over MAX_DELETE=$MAX_DELETE."
+    log_error "Refusing to apply them. This often means the remote path is wrong or unmounted."
+    rm -f "$current"
+    return 1
+  fi
+
+  log_info "applying ${#to_delete[@]} remote deletion(s) locally"
+
+  if [[ $DRY_RUN == "true" ]]; then
+    printf '  would delete locally: %s\n' "${to_delete[@]}" >&2
+    rm -f "$current"
+    return 0
+  fi
+
+  local trash_dir="$STATE_DIR/trash/$RUN_TS"
+  for rel in "${to_delete[@]}"; do
+    if [[ $TRASH_ENABLED == "true" ]]; then
+      mkdir -p "$trash_dir/$(dirname -- "$rel")" 2> /dev/null || true
+      mv -f "$LOCAL_DIR/$rel" "$trash_dir/$rel" 2> /dev/null ||
+        log_warn "could not move '$rel' to the trash"
+    else
+      # ${var:?} makes bash abort rather than expand to "/" if either variable
+      # is somehow empty -- a last line of defence around a recursive delete.
+      rm -rf -- "${LOCAL_DIR:?}/${rel:?}" 2> /dev/null || log_warn "could not delete '$rel'"
+    fi
+  done
+
+  mv -f "$current" "$snapshot"
+  log_ok "removed ${#to_delete[@]} path(s) locally (deleted on the remote)"
+  return 0
+}
+
+# Refresh the snapshot at the end of a cycle, so the next cycle compares
+# against the state the two sides actually converged on.
+update_remote_snapshot() {
+  [[ $DELETE_MODE == "both" || $DELETE_MODE == "pull" ]] || return 0
+  [[ $DRY_RUN == "true" ]] && return 0
+  local snapshot="$STATE_DIR/remote-snapshot"
+  local tmp
+  tmp="$(mktemp "$STATE_DIR/.remote-list.XXXXXX")" || return 0
+  if list_remote_paths > "$tmp"; then
+    mv -f "$tmp" "$snapshot"
+    log_debug "remote snapshot updated ($(wc -l < "$snapshot") path(s))"
+  else
+    rm -f "$tmp"
+  fi
+  return 0
+}
+
+apply_journaled_deletes() {
+  [[ $DELETE_MODE == "both" || $DELETE_MODE == "push" ]] || return 0
+  [[ -s $DELETE_JOURNAL ]] || {
+    log_debug "delete journal empty"
+    return 0
+  }
+
+  # Read, then immediately truncate, so events arriving during this pass are
+  # not lost and not double-applied.
+  local -a paths=()
+  mapfile -t paths < "$DELETE_JOURNAL"
+  : > "$DELETE_JOURNAL"
+
+  local -a valid=()
+  local rel
+  for rel in "${paths[@]}"; do
+    [[ -z $rel ]] && continue
+
+    # Containment re-check. The journal is a file on disk; treat it as
+    # untrusted input. Reject absolute paths and any traversal attempt so a
+    # corrupted or tampered journal cannot delete outside REMOTE_DIR.
+    [[ $rel == /* ]] && {
+      log_warn "journal: skipping absolute path '$rel'"
+      continue
+    }
+    [[ $rel == *".."* ]] && {
+      log_warn "journal: skipping traversal path '$rel'"
+      continue
+    }
+    [[ $rel == "$STATE_DIR_NAME/"* ]] && continue # never touch .sync/
+    [[ $rel == "$CONF_NAME" ]] && continue        # never touch sync.conf
+
+    # If the path exists locally again it was recreated (a "delete" that was
+    # really an editor's atomic save), so it must not be deleted remotely.
+    if [[ -e "$LOCAL_DIR/$rel" ]]; then
+      log_debug "journal: '$rel' exists again locally; not deleting remotely"
+      continue
+    fi
+
+    valid+=("$rel")
+  done
+
+  ((${#valid[@]})) || {
+    log_debug "no valid journaled deletions"
+    return 0
+  }
+
+  # Respect the deletion cap here too.
+  if ((MAX_DELETE >= 0 && ${#valid[@]} > MAX_DELETE)); then
+    log_error "journal holds ${#valid[@]} deletions, over MAX_DELETE=$MAX_DELETE."
+    log_error "Refusing to apply them; this often means a bulk local delete was unintended."
+    log_error "Review .sync/pending-deletes, then raise MAX_DELETE or clear the journal."
+    printf '%s\n' "${valid[@]}" >> "$DELETE_JOURNAL"
+    return 1
+  fi
+
+  log_info "applying ${#valid[@]} local deletion(s) to the remote"
+
+  if [[ $DRY_RUN == "true" ]]; then
+    printf '  would delete remotely: %s\n' "${valid[@]}" >&2
+    # Put them back so a later real run still applies them.
+    printf '%s\n' "${valid[@]}" >> "$DELETE_JOURNAL"
+    return 0
+  fi
+
+  # Build one remote command: move each path into the remote trash when the
+  # bin is enabled, otherwise remove it outright. Paths are single-quoted.
+  local remote_script
+  remote_script="set -e; cd $(shell_quote "$REMOTE_DIR") || exit 1;"
+  if [[ $TRASH_ENABLED == "true" ]]; then
+    remote_script+=" mkdir -p $(shell_quote "$STATE_DIR_NAME/trash/$RUN_TS");"
+  fi
+
+  for rel in "${valid[@]}"; do
+    local q
+    q="$(shell_quote "$rel")"
+    if [[ $TRASH_ENABLED == "true" ]]; then
+      # --parents keeps the original directory layout inside the trash dir.
+      remote_script+=" if [ -e $q ] || [ -L $q ]; then mkdir -p \"\$(dirname $(shell_quote "$STATE_DIR_NAME/trash/$RUN_TS/$rel"))\"; mv -f $q $(shell_quote "$STATE_DIR_NAME/trash/$RUN_TS/$rel") 2>/dev/null || true; fi;"
+    else
+      remote_script+=" rm -rf -- $q;"
+    fi
+  done
+
+  if ssh_cmd "$remote_script" 2> /dev/null; then
+    log_ok "removed ${#valid[@]} path(s) from the remote"
+    return 0
+  fi
+
+  log_warn "some remote deletions failed; re-queueing them for the next cycle"
+
+  printf '%s\n' "${valid[@]}" >> "$DELETE_JOURNAL"
+  return 1
+}
