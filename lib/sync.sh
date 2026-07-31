@@ -192,6 +192,7 @@ sync_cycle() {
   local rc=0
 
   # Fresh timestamp per cycle so trash/conflict snapshots stay distinguishable.
+  # shellcheck disable=SC2034
   RUN_TS="$(date '+%Y%m%d-%H%M%S')"
 
   log_info "--- sync cycle start (trigger: $reason) ---"

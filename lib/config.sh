@@ -212,6 +212,7 @@ Fix with: chmod o-w '$CONF_FILE'"
   SSH_CONTROL_PATH="${XDG_RUNTIME_DIR:-/tmp}/rsync-monitor-ssh-%C"
 
   # LOG_FILE is relative to the root unless given as an absolute path.
+  # shellcheck disable=SC2153
   if [[ $LOG_FILE == /* ]]; then
     LOG_PATH="$LOG_FILE"
   else
