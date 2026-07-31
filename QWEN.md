@@ -55,7 +55,7 @@ Each entry is a single block separated by a blank line:
 ```
 ### 2025-07-30 10:00:01 | step 1 | read
 **Why:** Need to understand current script structure before adding feature X
-**What:** Read sync.sh lines 1-200. Found main loop at line 450, config loader at line 120.
+**What:** Read mirror-remote-directory.sh lines 1-200. Found main loop at line 450, config loader at line 120.
 
 ### 2025-07-30 10:00:05 | step 2 | read
 **Why:** Step 1 showed config uses variables section — need to see variable names
@@ -67,7 +67,7 @@ Each entry is a single block separated by a blank line:
 
 ### 2025-07-30 10:01:30 | step 4 | command
 **Why:** Verify script still runs after config change
-**What:** Ran `bash -n sync.sh` — syntax OK, no errors.
+**What:** Ran `bash -n mirror-remote-directory.sh` — syntax OK, no errors.
 
 ### 2025-07-30 10:02:00 | step 5 | decision
 **Why:** Completed config change. Remaining: add variable handling in script body.
