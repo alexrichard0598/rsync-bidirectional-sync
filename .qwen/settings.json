@@ -1,0 +1,26 @@
+{
+  "$version": 4,
+  "permissions": {
+    "autoMode": {
+      "hints": {
+        "allow": [
+          "Running the shellcheck command",
+          "Running the bats command",
+          "Running any of the scripts inside the project tree",
+          "Running git commit (not git push)"
+        ],
+        "softDeny": [
+          "Editing Qwen Code settings unless I explicitly ask for the exact change",
+          "Running any commands that affect remote hosts, unless required for testing"
+        ],
+        "hardDeny": [
+          "Modifying anything outside of the project directory tree or /tmp",
+          "Pushing code to the git repo"
+        ]
+      },
+      "environment": [
+        "Any code changes performed should be commited with Qwen as the co-author"
+      ]
+    }
+  }
+}
