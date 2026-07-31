@@ -64,10 +64,10 @@ The script checks both at startup and refuses to run if either is missing.
 4. **Validate, preview, then commit:**
 
    ```bash
-   ./sync.sh --dir ~/myproject --check            # config + connectivity
-   ./sync.sh --dir ~/myproject --once --dry-run   # what would change
-   ./sync.sh --dir ~/myproject --force-first-run  # first real run
-   ./sync.sh --dir ~/myproject                    # watch continuously
+   ./mirror-remote-directory.sh --dir ~/myproject --check            # config + connectivity
+   ./mirror-remote-directory.sh --dir ~/myproject --once --dry-run   # what would change
+   ./mirror-remote-directory.sh --dir ~/myproject --force-first-run  # first real run
+   ./mirror-remote-directory.sh --dir ~/myproject                    # watch continuously
    ```
 
 The first real run needs `--force-first-run`. That gate exists so a
@@ -79,7 +79,7 @@ attempt.
 ## Usage
 
 ```
-./sync.sh [OPTIONS]
+./mirror-remote-directory.sh [OPTIONS]
 
 -d, --dir PATH        Local sync root (the folder holding sync.conf)
 -c, --config PATH     Use this config; its directory becomes the root
@@ -95,7 +95,7 @@ attempt.
 ```
 
 The sync root is located via `--dir`, then `$RSYNC_SYNC_DIR`, then by searching
-upward from the current directory — so inside the folder, plain `./sync.sh`
+upward from the current directory — so inside the folder, plain `./mirror-remote-directory.sh`
 works.
 
 Exit codes: `0` ok · `1` config · `2` dependency · `3` safety gate ·
@@ -270,7 +270,7 @@ See `sync.conf.example` — every option is documented inline. The essentials:
 Validate after editing:
 
 ```bash
-./sync.sh --dir ~/myproject --check
+./mirror-remote-directory.sh --dir ~/myproject --check
 ```
 
 ---
@@ -286,7 +286,7 @@ After=network-online.target
 [Service]
 Type=simple
 Environment=RSYNC_SYNC_DIR=%h/myproject
-ExecStart=%h/bin/sync.sh
+ExecStart=%h/bin/mirror-remote-directory.sh
 Restart=on-failure
 RestartSec=30
 
@@ -303,7 +303,7 @@ journalctl --user -u rsync-monitor -f
 For periodic instead of continuous syncing, use `--once` from cron:
 
 ```cron
-*/15 * * * * /home/me/bin/sync.sh --dir /home/me/myproject --once --quiet
+*/15 * * * * /home/me/bin/mirror-remote-directory.sh --dir /home/me/myproject --once --quiet
 ```
 
 ---
@@ -361,4 +361,3 @@ directories are in `EXCLUDES` so the watcher ignores them.
   Use `quick` if that is too expensive.
 - **inotify watch limits.** Very large trees may exhaust
   `fs.inotify.max_user_watches`; raise it via sysctl or exclude more paths.
-
