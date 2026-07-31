@@ -7,7 +7,10 @@
           "Running the shellcheck command",
           "Running the bats command",
           "Running any of the scripts inside the project tree",
-          "Running git commit (not git push)"
+          "Running git commit (not git push)",
+          "Writing anything to the project directory tree",
+          "Reading anything in the project diretory tree",
+          "Reading and writing to /tmp for testings purposes"
         ],
         "softDeny": [
           "Editing Qwen Code settings unless I explicitly ask for the exact change",
