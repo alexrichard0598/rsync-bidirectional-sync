@@ -25,6 +25,7 @@ SYNC_SH="${BATS_TEST_DIRNAME}/../mirror-remote-directory.sh"
 # ---------------------------------------------------------------------------
 setup_sourceable_lib() {
   SYNC_LIB="${BATS_FILE_TMPDIR}/sync_lib.sh"
+  cp -r "${BATS_TEST_DIRNAME}/../lib" "${BATS_FILE_TMPDIR}"
   sed '$d' "$SYNC_SH" > "$SYNC_LIB"
 }
 
@@ -92,6 +93,7 @@ run_sync() {
 # repeating the first-run dance themselves.
 establish_baseline() {
   run_sync --once --force-first-run
+  # shellcheck disable=SC2154
   [ "$status" -eq 0 ]
 }
 

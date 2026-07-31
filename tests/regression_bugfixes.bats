@@ -35,6 +35,7 @@ setup() {
 }
 
 @test "[bugfix] every built ssh option survives as its own token in the transport string" {
+  # shellcheck disable=SC2016
   run_lib '
     REMOTE_PORT="2222"
     SSH_KEY=""
