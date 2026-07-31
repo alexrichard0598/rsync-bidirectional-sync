@@ -220,7 +220,7 @@ classDiagram
 ## Class Descriptions
 
 | Class | Responsibility |
-|---|---|
+| --- | --- |
 | `Globals` *(deviation)* | Shared constants, config defaults, and runtime state. Not a behavioural class — see [Deviations](#deviations-from-the-diagram). |
 | `Controller` | Top-level orchestrator. Entry point, run mode dispatch (`watch`/`once`/`check`), signal handling, and shutdown/summary reporting. |
 | `Configuration` | Argument parsing and config-file loading; locates `sync.conf` by searching upward from the working directory. |
@@ -253,7 +253,7 @@ classDiagram
 `mirror-remote-directory.sh` sources these in order and then calls `main`:
 
 | File | Class(es) |
-|---|---|
+| --- | --- |
 | `lib/globals.sh` | `Globals` |
 | `lib/logging.sh` | `Logging`, `LogRotation` |
 | `lib/config.sh` | `Configuration` |
