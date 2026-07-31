@@ -1,6 +1,7 @@
 # AGENT.md — How to work in this project
 
-Every time you work on this project, maintain a step-by-step log at `qwen-log.md`.
+Every time you work on this project, start be reading `qwen-log.md` if it exists.
+You must maintain a step-by step log at `qwen-log.md`.
 This log is your only persistent memory across context resets — design it so you can resume mid-task just by reading it.
 
 ---
@@ -16,6 +17,8 @@ An "atomic step" is any of:
 - Making a code change (editing or writing a file)
 - Forming a conclusion or decision based on evidence gathered
 - Starting or completing a sub-task
+
+You **must** write a log at least once every 100 lines read.
 
 ## Log format
 
