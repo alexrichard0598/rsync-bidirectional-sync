@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034
 # =============================================================================
 #  lib/globals.sh -- shared constants, config defaults, and runtime state
 # =============================================================================
@@ -113,5 +114,5 @@ WATCHER_PIDS=() # background inotify/poll pids, killed on exit
 EVENT_FIFO=""   # watcher -> main loop event channel
 SHUTTING_DOWN="false"
 
-# shellcheck disable=SC2034  # consumed by Sync callers/summaries
+# consumed by Sync callers/summaries
 LAST_CHANGE_COUNT=0

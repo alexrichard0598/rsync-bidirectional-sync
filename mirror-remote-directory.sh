@@ -110,7 +110,9 @@ while [[ -L $SCRIPT_SOURCE ]]; do
   SCRIPT_SOURCE="$(readlink "$SCRIPT_SOURCE")"
   [[ $SCRIPT_SOURCE != /* ]] && SCRIPT_SOURCE="$SCRIPT_DIR/$SCRIPT_SOURCE"
 done
-readonly LIB_DIR="$(cd -P "$(dirname "$SCRIPT_SOURCE")" && pwd)/lib"
+
+LIB_DIR="$(cd -P "$(dirname "$SCRIPT_SOURCE")" && pwd)/lib"
+readonly LIB_DIR
 
 # Sourced in dependency order: globals first (every module reads its
 # variables and constants), Logging next (everything after it logs), then the
@@ -131,7 +133,7 @@ source "$LIB_DIR/connection.sh"
 source "$LIB_DIR/rsync_options.sh"
 # shellcheck source=lib/snapshot.sh
 source "$LIB_DIR/snapshot.sh"
-# shellcheck source=lib/mirror-remote-directory.sh
+# shellcheck source=lib/sync.sh
 source "$LIB_DIR/sync.sh"
 # shellcheck source=lib/watcher.sh
 source "$LIB_DIR/watcher.sh"

@@ -72,6 +72,7 @@ log_debug() { _log debug "$@"; }
 log_ok() {
   printf '%s%s [ ok  ]%s %s\n' \
     "$C_GREEN" "$(date '+%Y-%m-%d %H:%M:%S')" "$C_RESET" "$*" >&2
+  # shellcheck disable=SC2015
   [[ -n $LOG_PATH && -w ${LOG_PATH%/*} ]] &&
     printf '%s [ ok  ] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_PATH" 2> /dev/null || true
   return 0

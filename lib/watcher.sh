@@ -18,9 +18,9 @@ pause_watchers() {
 
   local count=0
   for pid in "${WATCHER_PIDS[@]}"; do
-    if kill -0 "$pid" 2>/dev/null; then
+    if kill -0 "$pid" 2> /dev/null; then
       log_debug "pausing watcher pid $pid"
-      kill -STOP "$pid" 2>/dev/null || true
+      kill -STOP "$pid" 2> /dev/null || true
       count=$((count + 1))
     else
       log_debug "watcher pid $pid no longer exists (not pausing)"
@@ -30,17 +30,17 @@ pause_watchers() {
   # Drain the FIFO to discard events that were buffered while watchers were
   # running but are about to become stale after the sync completes.
   # We use cat with a short timeout to avoid blocking forever.
-  if [[ -p "$EVENT_FIFO" ]]; then
-    cat "$EVENT_FIFO" &>/dev/null &
+  if [[ -p $EVENT_FIFO ]]; then
+    cat "$EVENT_FIFO" &> /dev/null &
     local drain_pid=$!
-    local drain_timeout=2  # seconds
+    local drain_timeout=2 # seconds
     local drain_elapsed=0
-    while kill -0 "$drain_pid" 2>/dev/null && [[ $drain_elapsed -lt $drain_timeout ]]; do
+    while kill -0 "$drain_pid" 2> /dev/null && [[ $drain_elapsed -lt $drain_timeout ]]; do
       sleep 0.5
       drain_elapsed=$((drain_elapsed + 1))
     done
     # If the drain is still running after timeout, terminate it.
-    kill "$drain_pid" 2>/dev/null && wait "$drain_pid" 2>/dev/null || true
+    kill "$drain_pid" 2> /dev/null && wait "$drain_pid" 2> /dev/null || true
     log_debug "drained event FIFO after pausing watchers"
   fi
 
@@ -54,9 +54,9 @@ resume_watchers() {
 
   local count=0
   for pid in "${WATCHER_PIDS[@]}"; do
-    if kill -0 "$pid" 2>/dev/null; then
+    if kill -0 "$pid" 2> /dev/null; then
       log_debug "resuming watcher pid $pid"
-      kill -CONT "$pid" 2>/dev/null || true
+      kill -CONT "$pid" 2> /dev/null || true
       count=$((count + 1))
     fi
   done
@@ -68,16 +68,16 @@ resume_watchers() {
 
   # Drain the FIFO again to discard events that accumulated while watchers
   # were paused (now written to the FIFO after resume).
-  if [[ -p "$EVENT_FIFO" ]]; then
-    cat "$EVENT_FIFO" &>/dev/null &
+  if [[ -p $EVENT_FIFO ]]; then
+    cat "$EVENT_FIFO" &> /dev/null &
     local drain_pid=$!
     local drain_timeout=2
     local drain_elapsed=0
-    while kill -0 "$drain_pid" 2>/dev/null && [[ $drain_elapsed -lt $drain_timeout ]]; do
+    while kill -0 "$drain_pid" 2> /dev/null && [[ $drain_elapsed -lt $drain_timeout ]]; do
       sleep 0.5
       drain_elapsed=$((drain_elapsed + 1))
     done
-    kill "$drain_pid" 2>/dev/null && wait "$drain_pid" 2>/dev/null || true
+    kill "$drain_pid" 2> /dev/null && wait "$drain_pid" 2> /dev/null || true
     log_debug "drained event FIFO after resuming watchers"
   fi
 

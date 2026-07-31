@@ -62,7 +62,7 @@ ssh_cmd() {
   fi
   local -a opts=()
   mapfile -t opts < <(build_ssh_opts)
-  ssh "${opts[@]}" "$REMOTE" "$remote_command"
+  ssh "${opts[@]}" "$REMOTE" '$remote_command'
 }
 
 # Verify we can reach the remote and that REMOTE_DIR is usable there.
