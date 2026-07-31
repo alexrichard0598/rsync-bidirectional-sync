@@ -7,7 +7,7 @@
           "Running the shellcheck command",
           "Running the bats command",
           "Running any of the scripts inside the project tree",
-          "Running git commit (not git push)",
+          "Running git commit, git status, and git log, but not git push",
           "Writing anything to the project directory tree",
           "Reading anything in the project diretory tree",
           "Reading and writing to /tmp for testings purposes"
