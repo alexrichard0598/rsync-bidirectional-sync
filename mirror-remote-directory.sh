@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  sync.sh -- bidirectional rsync + inotify folder sync over ssh
+#  mirror-remote-directory.sh -- bidirectional rsync + inotify folder sync over ssh
 # =============================================================================
 #
 #  WHAT IT DOES
@@ -52,14 +52,14 @@
 #    ssh-%C              ssh ControlMaster sockets
 #
 #  USAGE
-#    ./sync.sh                     watch and sync continuously
-#    ./sync.sh --once              one cycle, then exit (cron-friendly)
-#    ./sync.sh --check             validate config and connectivity only
-#    ./sync.sh --dry-run           show what would change, touch nothing
-#    ./sync.sh --pull-only         remote -> local only
-#    ./sync.sh --push-only         local -> remote only
-#    ./sync.sh --dir /path         choose the sync root explicitly
-#    ./sync.sh --help              full option list
+#    ./mirror-remote-directory.sh                     watch and sync continuously
+#    ./mirror-remote-directory.sh --once              one cycle, then exit (cron-friendly)
+#    ./mirror-remote-directory.sh --check             validate config and connectivity only
+#    ./mirror-remote-directory.sh --dry-run           show what would change, touch nothing
+#    ./mirror-remote-directory.sh --pull-only         remote -> local only
+#    ./mirror-remote-directory.sh --push-only         local -> remote only
+#    ./mirror-remote-directory.sh --dir /path         choose the sync root explicitly
+#    ./mirror-remote-directory.sh --help              full option list
 #
 #  EXIT CODES
 #    0 ok   1 config/usage error   2 dependency missing   3 safety gate
@@ -82,7 +82,7 @@
 #      lib/connection.sh      Connection
 #      lib/rsync_options.sh   RsyncOptions
 #      lib/snapshot.sh        Snapshot
-#      lib/sync.sh            Sync
+#      lib/mirror-remote-directory.sh            Sync
 #      lib/watcher.sh         Watcher
 #      lib/controller.sh      Controller
 #    See class-diagram.md for responsibilities and relationships, including
@@ -105,7 +105,7 @@ IFS=$'\n\t'
 # Resolve the directory this script lives in (not $PWD), so lib/*.sh is found
 # regardless of where the script is invoked from or symlinked via.
 SCRIPT_SOURCE="${BASH_SOURCE[0]}"
-while [[ -h $SCRIPT_SOURCE ]]; do
+while [[ -L $SCRIPT_SOURCE ]]; do
   SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_SOURCE")" && pwd)"
   SCRIPT_SOURCE="$(readlink "$SCRIPT_SOURCE")"
   [[ $SCRIPT_SOURCE != /* ]] && SCRIPT_SOURCE="$SCRIPT_DIR/$SCRIPT_SOURCE"
@@ -131,7 +131,7 @@ source "$LIB_DIR/connection.sh"
 source "$LIB_DIR/rsync_options.sh"
 # shellcheck source=lib/snapshot.sh
 source "$LIB_DIR/snapshot.sh"
-# shellcheck source=lib/sync.sh
+# shellcheck source=lib/mirror-remote-directory.sh
 source "$LIB_DIR/sync.sh"
 # shellcheck source=lib/watcher.sh
 source "$LIB_DIR/watcher.sh"
