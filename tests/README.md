@@ -1,4 +1,4 @@
-# mirror-remote-directory.sh test suite (bats-core)
+# rsync-live-mirror.sh test suite (bats-core)
 
 To test the application run run:
 
@@ -15,7 +15,7 @@ and "remote". No fixtures beyond that are needed.
 
 - `test_helper.bash` -- shared setup: fixture dirs, a `sync.conf` writer,
   and the machinery for unit-testing individual functions (sources a
-  copy of `mirror-remote-directory.sh` with its trailing `main "$@"` stripped, inside an
+  copy of `rsync-live-mirror.sh` with its trailing `main "$@"` stripped, inside an
   isolated `bash -c` subshell per call, so the script's `set -Eeuo
   pipefail`, global `IFS`, and EXIT/TERM traps never leak into the test
   runner).

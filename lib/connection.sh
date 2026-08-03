@@ -43,7 +43,7 @@ build_ssh_opts() {
 build_rsync_ssh_transport() {
   local -a opts=()
   mapfile -t opts < <(build_ssh_opts)
-  # IFS is $'\n\t' globally (see mirror-remote-directory.sh), so "${opts[*]}"
+  # IFS is $'\n\t' globally (see rsync-live-mirror.sh), so "${opts[*]}"
   # would join on a newline rather than a space here. rsync's own -e parser
   # splits its argument on literal spaces only, so a newline-joined string
   # collapses into one glued argv element when it reaches ssh -- silently

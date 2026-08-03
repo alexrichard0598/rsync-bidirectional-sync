@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  mirror-remote-directory.sh -- bidirectional rsync + inotify folder sync over ssh
+#  rsync-live-mirror.sh -- bidirectional rsync + inotify folder sync over ssh
 # =============================================================================
 #
 #  WHAT IT DOES
@@ -52,14 +52,14 @@
 #    ssh-%C              ssh ControlMaster sockets
 #
 #  USAGE
-#    ./mirror-remote-directory.sh                     watch and sync continuously
-#    ./mirror-remote-directory.sh --once              one cycle, then exit (cron-friendly)
-#    ./mirror-remote-directory.sh --check             validate config and connectivity only
-#    ./mirror-remote-directory.sh --dry-run           show what would change, touch nothing
-#    ./mirror-remote-directory.sh --pull-only         remote -> local only
-#    ./mirror-remote-directory.sh --push-only         local -> remote only
-#    ./mirror-remote-directory.sh --dir /path         choose the sync root explicitly
-#    ./mirror-remote-directory.sh --help              full option list
+#    ./rsync-live-mirror.sh                     watch and sync continuously
+#    ./rsync-live-mirror.sh --once              one cycle, then exit (cron-friendly)
+#    ./rsync-live-mirror.sh --check             validate config and connectivity only
+#    ./rsync-live-mirror.sh --dry-run           show what would change, touch nothing
+#    ./rsync-live-mirror.sh --pull-only         remote -> local only
+#    ./rsync-live-mirror.sh --push-only         local -> remote only
+#    ./rsync-live-mirror.sh --dir /path         choose the sync root explicitly
+#    ./rsync-live-mirror.sh --help              full option list
 #
 #  EXIT CODES
 #    0 ok   1 config/usage error   2 dependency missing   3 safety gate
@@ -82,7 +82,7 @@
 #      lib/connection.sh      Connection
 #      lib/rsync_options.sh   RsyncOptions
 #      lib/snapshot.sh        Snapshot
-#      lib/mirror-remote-directory.sh            Sync
+#      lib/rsync-live-mirror.sh            Sync
 #      lib/watcher.sh         Watcher
 #      lib/controller.sh      Controller
 #    See class-diagram.md for responsibilities and relationships, including

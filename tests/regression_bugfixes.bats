@@ -77,7 +77,7 @@ setup() {
 # ---------------------------------------------------------------------------
 
 @test "[bugfix] start_periodic_watcher registers its pid in WATCHER_PIDS" {
-  # kill -9, not a plain kill: the spawned subshell inherits mirror-remote-directory.sh's own
+  # kill -9, not a plain kill: the spawned subshell inherits rsync-live-mirror.sh's own
   # EXIT/TERM traps, and bash defers a caught, trap-handled signal until the
   # subshell's current foreground command (sleep) returns -- so a plain
   # SIGTERM here would sit unhandled for the full PERIODIC_FULL_SYNC

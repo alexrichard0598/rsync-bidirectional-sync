@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Unit tests for self-contained functions in mirror-remote-directory.sh, exercised by sourcing
+# Unit tests for self-contained functions in rsync-live-mirror.sh, exercised by sourcing
 # a main()-stripped copy of the script (see test_helper.bash). These need no
 # rsync transfer and no fixture directories -- just the function under test.
 

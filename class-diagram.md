@@ -1,6 +1,6 @@
-# OOP Class Diagram for `mirror-remote-directory.sh`
+# OOP Class Diagram for `rsync-live-mirror.sh`
 
-`mirror-remote-directory.sh` is a bash script, not a true OOP language, but its
+`rsync-live-mirror.sh` is a bash script, not a true OOP language, but its
 functions cluster tightly around distinct responsibilities and shared state.
 This document maps that structure onto a conventional UML class diagram:
 each "class" is a conceptual module, each bash global becomes an attribute of
@@ -10,7 +10,7 @@ enforced visibility, so the `_`-prefix naming convention is treated as
 
 The classes below are no longer just a conceptual grouping: the codebase is
 physically split along these lines, one `lib/*.sh` file per class (see
-[Source Layout](#source-layout)). `mirror-remote-directory.sh` itself is now a
+[Source Layout](#source-layout)). `rsync-live-mirror.sh` itself is now a
 thin entry point that sources `lib/*.sh` in dependency order and calls
 `main`.
 
@@ -250,7 +250,7 @@ classDiagram
 
 ## Source Layout
 
-`mirror-remote-directory.sh` sources these in order and then calls `main`:
+`rsync-live-mirror.sh` sources these in order and then calls `main`:
 
 | File | Class(es) |
 | --- | --- |

@@ -1,6 +1,6 @@
 # Issues
 
-Derived from analysis of `rsync-bidirectional-sync-issue-to-checks.md` (13 candidate issues reviewed against source code and tests).
+Derived from analysis of `rsync-live-mirror-issue-to-checks.md` (13 candidate issues reviewed against source code and tests).
 
 Only genuinely actionable gaps are listed below. Issues that were already handled by the implementation or represent by-design trade-offs are omitted.
 

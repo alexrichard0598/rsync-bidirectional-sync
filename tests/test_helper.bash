@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# test_helper.bash -- shared fixtures and helpers for the mirror-remote-directory.sh bats suite
+# test_helper.bash -- shared fixtures and helpers for the rsync-live-mirror.sh bats suite
 # =============================================================================
 #
 # All integration tests run in LOCAL-TO-LOCAL mode (REMOTE="") so the suite
@@ -13,10 +13,10 @@
 # =============================================================================
 
 # Repo root and the script under test.
-SYNC_SH="${BATS_TEST_DIRNAME}/../mirror-remote-directory.sh"
+SYNC_SH="${BATS_TEST_DIRNAME}/../rsync-live-mirror.sh"
 
 # ---------------------------------------------------------------------------
-# Unit-testing support: mirror-remote-directory.sh ends with an unconditional `main "$@"`, so it
+# Unit-testing support: rsync-live-mirror.sh ends with an unconditional `main "$@"`, so it
 # can't be sourced directly without launching the whole program. A copy with
 # that last line stripped is sourced instead, inside a throwaway `bash -c`
 # subprocess per call -- never into the bats shell itself -- so the script's
@@ -81,7 +81,7 @@ write_conf() {
   done
 }
 
-# Invoke mirror-remote-directory.sh against LOCAL_DIR and capture status/output via bats' `run`.
+# Invoke rsync-live-mirror.sh against LOCAL_DIR and capture status/output via bats' `run`.
 # Usage: run_sync --once --force-first-run
 run_sync() {
   run "$SYNC_SH" --dir "$LOCAL_DIR" "$@"

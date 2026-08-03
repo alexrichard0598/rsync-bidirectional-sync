@@ -1,7 +1,7 @@
 #!/hint/bash
 # shellcheck shell=bash disable=SC2034
 # =============================================================================
-#  sync.conf  --  configuration for mirror-remote-directory.sh (bidirectional rsync+inotify sync)
+#  sync.conf  --  configuration for rsync-live-mirror.sh (bidirectional rsync+inotify sync)
 # =============================================================================
 #
 #  LOCATION
@@ -16,12 +16,12 @@
 #    the remote and are never removed by a --delete pass.
 #
 #  SYNTAX
-#    Plain bash. It is sourced by mirror-remote-directory.sh, so you may use $VARIABLES,
+#    Plain bash. It is sourced by rsync-live-mirror.sh, so you may use $VARIABLES,
 #    command substitution, arrays, and comments. Keep it simple: a stray
 #    syntax error here stops the sync.
 #
 #  AFTER EDITING
-#    Validate without touching any files:   ./mirror-remote-directory.sh --dir /path/to/root --check
+#    Validate without touching any files:   ./rsync-live-mirror.sh --dir /path/to/root --check
 # =============================================================================
 
 # -----------------------------------------------------------------------------

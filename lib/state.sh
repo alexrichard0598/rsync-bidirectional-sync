@@ -43,7 +43,7 @@ local_sentinel_exists() { [[ -f $SENTINEL_PATH ]]; }
 
 write_local_sentinel() {
   {
-    echo "# rsync-monitor sync root marker -- do not delete"
+    echo "# rsync-live-mirror sync root marker -- do not delete"
     echo "# Removing this file makes sync.sh refuse to run (REQUIRE_SENTINEL)."
     echo "created=$(date -Iseconds)"
     echo "host=$(hostname 2> /dev/null || echo unknown)"
@@ -57,7 +57,7 @@ write_local_sentinel() {
 # local-to-local mode.
 write_remote_sentinel() {
   local content
-  content="# rsync-monitor sync root marker -- do not delete
+  content="# rsync-live-mirror sync root marker -- do not delete
 created=$(date -Iseconds)
 paired_local=$LOCAL_DIR"
 

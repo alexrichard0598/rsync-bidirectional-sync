@@ -209,7 +209,7 @@ Fix with: chmod o-w '$CONF_FILE'"
   # Keep the SSH control socket under a short base directory to avoid
   # "unix_listener: path too long for Unix domain socket" errors when
   # $STATE_DIR is deeply nested.
-  SSH_CONTROL_PATH="${XDG_RUNTIME_DIR:-/tmp}/rsync-monitor-ssh-%C"
+  SSH_CONTROL_PATH="${XDG_RUNTIME_DIR:-/tmp}/rsync-live-mirror-ssh-%C"
 
   # LOG_FILE is relative to the root unless given as an absolute path.
   # shellcheck disable=SC2153

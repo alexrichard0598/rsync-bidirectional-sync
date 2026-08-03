@@ -1,7 +1,7 @@
-# Potential Issues — `rsync-bidirectional-sync`
+# Potential Issues — `rsync-live-mirror`
 
 High-level review based on `README.md`, `class-diagram.md`, `sync.conf.example`, and
-`tests/` (bats-core). `mirror-remote-directory.sh` and `lib/*.sh` were deliberately
+`tests/` (bats-core). `rsync-live-mirror.sh` and `lib/*.sh` were deliberately
 **not** read for this pass, so several items below are flagged as "verify in code"
 rather than confirmed bugs — they're gaps in what the design *documents*, which may
 or may not be handled correctly in the implementation.

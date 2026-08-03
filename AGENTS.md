@@ -4,9 +4,9 @@ Instructions for AI coding agents working in this repository.
 
 ## Project overview
 
-`rsync-bidirectional-sync` is a bash-based tool for continuous
-**bidirectional** folder sync over SSH, driven by filesystem events
-(`inotify`) rather than polling on a fixed schedule.
+`rsync-live-mirror` is a bash-based tool for continuous **bidirectional**
+folder sync over SSH, driven by filesystem events (`inotify`) rather than
+polling on a fixed schedule.
 
 Key behaviors, for context before making changes:
 
@@ -20,7 +20,7 @@ Key behaviors, for context before making changes:
 - Configuration lives in a `sync.conf` file inside the folder being synced
   (see `sync.conf.example` for the full, documented option list).
 
-The entry point is `mirror-remote-directory.sh`, which is a thin script that
+The entry point is `rsync-live-mirror.sh`, which is a thin script that
 sources the modules in `lib/*.sh` (in dependency order) and calls `main`.
 `lib/globals.sh` must be sourced first — it declares every default/runtime
 variable the other modules reference under `set -u`.
@@ -61,16 +61,16 @@ queued.
 
 ```bash
 # validate config + connectivity only
-./mirror-remote-directory.sh --dir ~/myproject --check
+./rsync-live-mirror.sh --dir ~/myproject --check
 
 # preview changes without applying them
-./mirror-remote-directory.sh --dir ~/myproject --once --dry-run
+./rsync-live-mirror.sh --dir ~/myproject --once --dry-run
 
 # first real run (required gate — protects against mirroring an empty tree over real data)
-./mirror-remote-directory.sh --dir ~/myproject --force-first-run
+./rsync-live-mirror.sh --dir ~/myproject --force-first-run
 
 # then, ongoing:
-./mirror-remote-directory.sh --dir ~/myproject   # watch continuously
+./rsync-live-mirror.sh --dir ~/myproject   # watch continuously
 ```
 
 Useful flags: `--once` (single cycle then exit), `--pull-only` /
@@ -109,7 +109,7 @@ Test files:
 
 - `test_helper.bash` — shared setup (fixture dirs, a `sync.conf` writer) and
   the machinery for unit-testing individual functions. It sources a copy of
-  `mirror-remote-directory.sh` with the trailing `main "$@"` stripped, inside
+  `rsync-live-mirror.sh` with the trailing `main "$@"` stripped, inside
   an isolated `bash -c` subshell per call, so the script's `set -Eeuo
   pipefail`, global `IFS`, and EXIT/TERM traps never leak into the test
   runner.
@@ -123,15 +123,16 @@ Test files:
   `--pull-only`/`--push-only`, remote-wins conflict resolution and conflict
   backups, both deletion mechanisms, `MAX_DELETE`, `DELETE_MODE=none`,
   symlink handling.
-- `regression_bugfixes.bats` — pinned regressions plus one deliberately
-  **currently-failing, unpatched** test documenting a known bug (see below).
+- `regression_bugfixes.bats` — pinned regressions for historically
+  problematic areas. The suite is now fully green; see `tests/README.md`
+  for the fix history.
 
 Before relying on test results, check `tests/README.md` for the current
-status — it records the state of the suite as of the last handoff,
-including a known-flaky pair of tests around `start_periodic_watcher` PID
-reaping, and a known bug in `count_itemized_changes()`'s regex (`[<>ch.*]`
-incorrectly matches attribute-only itemize lines) that is left failing
-on purpose so it stays visible until fixed.
+status — it records the state of the suite as of the last run.
+
+See `issues-discovered-by-qwen.md` for a catalog of known design limitations
+that are not yet fixed (e.g. edit-vs-delete conflicts, rename fan-out,
+systemd restart loops).
 
 When changing behavior in `lib/*.sh`, run the full suite (`bats tests/`)
 before considering the change done, and update or add `.bats` tests
@@ -145,18 +146,18 @@ alongside the change rather than only manually verifying.
 
   ```bash
   shellcheck --version                        # confirm version
-  shellcheck mirror-remote-directory.sh lib/*.sh
-  shellcheck -x mirror-remote-directory.sh     # follow `source`d lib/*.sh files too
+  shellcheck rsync-live-mirror.sh lib/*.sh
+  shellcheck -x rsync-live-mirror.sh     # follow `source`d lib/*.sh files too
   shellcheck -S warning lib/sync.sh            # ignore style-only nits, focus on warning+
   shellcheck -f gcc lib/*.sh                   # gcc-style output, easier to grep/parse
   ```
 
-  Run it against every `.sh` file you touch (`mirror-remote-directory.sh` and
+  Run it against every `.sh` file you touch (`rsync-live-mirror.sh` and
   anything under `lib/` or `tests/`) before considering a change done, not
   just the one you edited — `-x` only follows `source`, it doesn't check
   files you didn't pass in.
 - Prefer editing the relevant `lib/*.sh` module directly over adding logic to
-  `mirror-remote-directory.sh`, which is meant to stay a thin entry point.
+  `rsync-live-mirror.sh`, which is meant to stay a thin entry point.
 - If a change affects the module responsibilities or dependencies described
   above, update `class-diagram.md` to match.
 - If a change affects user-facing behavior, flags, or config keys, update

@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# CLI parsing and config-validation tests. These invoke mirror-remote-directory.sh as a real
+# CLI parsing and config-validation tests. These invoke rsync-live-mirror.sh as a real
 # subprocess (not sourced) since they exercise argument parsing, exit codes,
 # and validate_config()'s interaction with a real sync.conf on disk.
 
@@ -21,7 +21,7 @@ setup() {
 @test "--version prints the script name and version" {
   run "$SYNC_SH" --version
   [ "$status" -eq 0 ]
-  [[ "$output" == *"mirror-remote-directory.sh"* ]]
+  [[ "$output" == *"rsync-live-mirror.sh"* ]]
 }
 
 @test "an unknown option is rejected with the config exit code" {
