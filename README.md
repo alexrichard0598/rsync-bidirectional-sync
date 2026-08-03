@@ -1,4 +1,4 @@
-# rsync-monitor
+# Rsync Bidirectional Sync
 
 Continuous **bidirectional** folder sync over SSH, driven by filesystem events
 (`inotify`) rather than a fixed schedule.
