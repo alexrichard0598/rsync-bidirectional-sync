@@ -20,15 +20,18 @@
 #    alone for the push to upload.
 #
 #  Snapshot record format:
-#    Each line is "path<TAB>size<TAB>xxh128" — one remote path per record,
-#    not just a bare path. The size/hash let deletion-detection tell "the
-#    path is genuinely gone" apart from "the path is still there but its
-#    content changed": comparisons against this file MUST be done on the
-#    path field only, never on whole records (see the comment in
+#    Each line is "path<TAB>size<TAB>xxh128<TAB>mtime" — one remote path
+#    per record, not just a bare path. The size/hash let deletion-detection
+#    tell "the path is genuinely gone" apart from "the path is still there
+#    but its content changed": comparisons against this file MUST be done
+#    on the path field only, never on whole records (see the comment in
 #    apply_remote_deletions() -- comparing whole records would make an
 #    ordinary remote edit look like a deletion, since the hash column would
-#    differ). The extra fields also lay the groundwork for matching a
-#    MOVED_FROM/MOVED_TO pair by content instead of by name.
+#    differ). The mtime field (epoch seconds from rsync %T) lets move/
+#    rename detection distinguish "file was just moved" from "file was
+#    deleted and a new one appeared". The extra fields also lay the
+#    groundwork for matching a MOVED_FROM/MOVED_TO pair by content instead
+#    of by name.
 #
 #  Journal-driven deletion for the push direction.
 #
@@ -61,7 +64,7 @@ prune_old_snapshots() {
   log_debug "pruned snapshots older than ${TRASH_KEEP_DAYS}d"
 }
 
-# Emits one TAB-separated record per remote path: "path<TAB>size<TAB>xxh128".
+# Emits one TAB-separated record per remote path: "path<TAB>size<TAB>xxh128<TAB>mtime".
 # Honours the same excludes as the transfer, since filter rules are shared
 # with build_filter_opts(). --list-only is deliberately NOT used: it ignores
 # --out-format and prints an ls-style long listing ("perms size date time
@@ -90,7 +93,7 @@ list_remote_paths() {
   # on top of the read PULL_COMPARE="checksum" already performs for do_pull()
   # itself. See issues-discovered-by-qwen.md for the tradeoff.
   local out_format
-  out_format=$'%n\t%l\t%C'
+  out_format=$'%n\t%l\t%C\t%T'
   local -a opts=(--recursive --links --dry-run --checksum \
     --checksum-choice=xxh128 --out-format="$out_format")
   [[ $SAFE_LINKS == "true" ]] && opts+=(--safe-links)
@@ -105,9 +108,9 @@ list_remote_paths() {
   local scratch="$STATE_DIR/.listing-scratch"
 
   # Directories arrive with a trailing slash and the tree root as "./" -- both
-  # are normalised away on the PATH FIELD ONLY, leaving the size/hash fields
-  # untouched, so the result is a plain sorted list of
-  # "path<TAB>size<TAB>hash" records. Non-regular entries (directories,
+  # are normalised away on the PATH FIELD ONLY, leaving the size/hash/mtime
+  # fields untouched, so the result is a plain sorted list of
+  # "path<TAB>size<TAB>hash<TAB>mtime" records. Non-regular entries (directories,
   # symlinks) get an empty or all-zero hash from rsync; that is fine, since
   # they are only ever matched by path, never by hash.
   rsync "${opts[@]}" "${filters[@]}" "$(remote_endpoint)" "$scratch/" 2> /dev/null |
@@ -116,7 +119,7 @@ list_remote_paths() {
         name = $1
         sub(/\/$/, "", name)
         if (name == "" || name == ".") next
-        print name, $2, $3
+        print name, $2, $3, $4
       }' |
     LC_ALL=C sort -u
 }
@@ -159,6 +162,70 @@ apply_remote_deletions() {
       <(cut -f1 "$current" | LC_ALL=C sort -u)
   )
 
+  # --- Move/rename detection ------------------------------------------------
+  # If a file's content hash (xxh128) disappears from Path A but appears at
+  # Path B in the same cycle, treat it as a MOVE rather than DELETE + CREATE.
+  #
+  # Strategy:
+  #   1. Build hash -> path maps from (a) vanished paths in the old snapshot
+  #      and (b) "new" paths in the current listing that weren't in the old
+  #      snapshot.
+  #   2. Cross-reference: vanished.hash == new.hash => same content, different
+  #      name => rename local file to track the new location.
+  #   3. Vanished paths NOT matched as moves proceed as genuine deletions.
+
+  # Hashes of paths that vanished (path -> content_hash from old snapshot).
+  # Snapshot format: path<TAB>size<TAB>xxh128<TAB>mtime
+  # We need field 3 (xxh128 hash); field 2 is size, field 4 is mtime.
+  local -A old_hash_map=()
+  local path_v _size_v hash_v _mtime_v
+  while IFS=$'\t' read -r path_v _size_v hash_v _mtime_v; do
+    old_hash_map["$path_v"]="$hash_v"
+  done < "$snapshot"
+
+  # Hashes of "newly appeared" paths (in current listing but not in old snapshot).
+  local new_paths_file
+  new_paths_file="$(mktemp)"
+  LC_ALL=C comm -13 \
+    <(cut -f1 "$snapshot" | LC_ALL=C sort -u) \
+    <(cut -f1 "$current"  | LC_ALL=C sort -u) > "$new_paths_file"
+
+  local -A new_hash_map=()
+  local path_c _size_c hash_c mtime_c
+  while IFS=$'\t' read -r path_c _size_c hash_c mtime_c; do
+    [[ -n "${new_hash_map["$hash_c"]+x}" ]] && continue # first match wins
+    new_hash_map["$hash_c"]="$path_c"
+  done < "$current"
+  rm -f "$new_paths_file"
+
+  # Detect moves: vanished hash present in new-path hashes.
+  local -A moved_to=()   # old_path -> new_path
+  local old_path new_path vanish_hash
+  for vanish_hash in "${!old_hash_map[@]}"; do
+    old_path="${old_hash_map["$vanish_hash"]}"
+    new_path="${new_hash_map["$vanish_hash"]:-}"
+    [[ -n $new_path ]] || continue
+
+    # Containment guard for both sides of the rename.
+    [[ $old_path == /* || $old_path == *".."* ]] && continue
+    [[ $new_path == /* || $new_path == *".."* ]] && continue
+    [[ $old_path == "$STATE_DIR_NAME"* || $old_path == "$CONF_NAME" ]] && continue
+    [[ $new_path == "$STATE_DIR_NAME"* || $new_path == "$CONF_NAME" ]] && continue
+
+    if [[ -e "$LOCAL_DIR/$old_path" || -L "$LOCAL_DIR/$old_path" ]]; then
+      if [[ $DRY_RUN == "true" ]]; then
+        log_info "  would rename: $old_path -> $new_path (move detected on remote)"
+      else
+        mkdir -p "$(dirname -- "$LOCAL_DIR/$new_path")" 2>/dev/null || true
+        mv -f "$LOCAL_DIR/$old_path" "$LOCAL_DIR/$new_path" 2>/dev/null ||
+          log_warn "move detected $old_path -> $new_path but local rename failed"
+        log_debug "move detected: $old_path -> $new_path (content hash $vanish_hash)"
+      fi
+      moved_to["$old_path"]="$new_path"
+    fi
+  done
+
+  # Paths NOT detected as moves are genuine deletions.
   local -a to_delete=()
   local rel
   for rel in "${vanished[@]}"; do
@@ -166,7 +233,7 @@ apply_remote_deletions() {
     # Containment: never act on absolute paths, traversal, or our own state.
     [[ $rel == /* || $rel == *".."* ]] && continue
     [[ $rel == "$STATE_DIR_NAME"* || $rel == "$CONF_NAME" ]] && continue
-    # Only delete if it still exists locally.
+    # Only delete if it still exists locally (may have been renamed above).
     [[ -e "$LOCAL_DIR/$rel" || -L "$LOCAL_DIR/$rel" ]] || continue
     to_delete+=("$rel")
   done

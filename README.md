@@ -93,14 +93,19 @@ Cycles are serialized with `flock`; overlapping triggers are dropped, not queued
 - **Local → remote**: inotify journals every `DELETE`/`MOVED_FROM`; only journaled paths are removed remotely.
 - **Remote → local**: remote listing is snapshotted each cycle; anything gone from the remote is removed locally.
 
-The snapshot records each remote path together with its size and an xxh128
-content hash (`path`, `size`, `hash`), not just the bare path. This lets
-deletion detection tell "the file is actually gone" apart from "the file is
-still there but its content changed" — the comparison is always done on the
-path field only, so an ordinary remote edit is never mistaken for a
-deletion. The tradeoff: computing the hash means every remote file is fully
-read once per cycle for the snapshot, on top of the read
-`PULL_COMPARE="checksum"` already performs for the pull itself.
+The snapshot records each remote path as a 4-field record:
+`path<TAB>size<TAB>xxh128<TAB>mtime`.  This lets deletion detection tell
+"the file is actually gone" apart from "the file is still there but its
+content changed" — the comparison is always done on the **path field only**,
+so an ordinary remote edit is never mistaken for a deletion.  The xxh128 hash
+is also used for **move/rename detection**: when a path vanishes from the
+remote but a new path appears with the same content hash, the local side
+recognises the rename and moves the local file rather than deleting and
+recreating.  The mtime field (epoch seconds from rsync `%T`) records the
+remote modification time for each path.  The tradeoff: computing the hash
+means every remote file is fully read once per cycle for the snapshot, on
+top of the read `PULL_COMPARE="checksum"` already performs for the pull
+itself.
 
 Four guards prevent deletion from escaping:
 1. **No `--keep-dirlinks`** — symlinks pointing outside the tree are replaced in-tree
