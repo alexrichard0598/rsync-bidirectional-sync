@@ -17,17 +17,17 @@ continuous, bidirectional sync over SSH by reacting to filesystem events
 ### 1.2 Design Principles
 
 | Principle | Enforcement |
-|---|---|
+| — | — |
 | **Remote wins conflicts** | Pull omits `--update` (remote overwrites). Push uses `--update` (never clobbers newer remote). Losing local copy → `.sync/conflicts/<ts>/`. |
 | **Deletion confined to sync tree** | Four guards: no `--keep-dirlinks`, path validation (absolute, no `..`, not system dir, ≥2 levels), `.sync/.sync-root` sentinels both sides, journal/snapshot re-validation. |
 | **Symlinks as symlinks** | `--links` always; never `--copy-links`/`--copy-dirlinks`/`--keep-dirlinks`. |
 | **Cycles serialized** | `flock` on `.sync/sync.lock`; overlapping triggers dropped, not queued. |
-| **Bash purity** | No external JS/Python wrappers. ShellCheck-clean (`shellcheck -x`), `set -Eeuo pipefail`. |
+| **Bash purity** | No external JS/Python wrappers. ShellCheck clean (`shellcheck -x`), `set -Eeuo pipefail`. |
 
 ### 1.3 Technology Stack
 
 | Layer | Tool | Version Constraint |
-|---|---|---|
+| — | — | — |
 | Shell | `bash` | ≥ 4.0 |
 | Transfer | `rsync` | ≥ 3.1.3 (xxh128 + lz4) |
 | Remote access | `ssh` | any |
@@ -69,7 +69,7 @@ See `class-diagram.md` for the full UML-style class diagram with relationships.
 Key module summary:
 
 | Module | Owns | Calls |
-|---|---|---|
+| — | — | — |
 | `Controller` | Run mode dispatch (`watch`/`once`/`check`), signal handling, shutdown | Configuration, Validation, Sync, Watcher |
 | `Configuration` | CLI args, `sync.conf` loading and resolution | — |
 | `Validation` | Config, path, and tool-version validation | — |
@@ -147,7 +147,7 @@ files.
 **Solution:**
 
 | Direction | Mechanism |
-|---|---|
+| — | — |
 | **Pull (remote→local)** | NO blanket `--delete`. A blanket `--delete` on pull would remove every file that exists only on the local side — including files the user just CREATED locally and that have not been pushed yet. Remote deletions are detected by comparing the remote file list against a snapshot of the previous cycle (see `apply_remote_deletions` in `sync.sh`). The snapshot carries `path<TAB>size<TAB>xxh128` records, not just bare paths. The deletion-diff compares paths only (`cut -f1` each side before `comm -23`), so a remote edit (content changed, same path) is never mistaken for a deletion. Only genuinely-vanished paths are removed locally. |
 | **Push (local→remote)** | NO blanket `--delete`. The inotify watcher journals every `DELETE`/`MOVED_FROM` into `.sync/pending-deletes`. The push removes ONLY those recorded paths. New local files are never mistaken for remote deletions. |
 
@@ -168,7 +168,7 @@ cycles.
 **Detection:**
 
 | Direction | How |
-|---|---|
+| — | — |
 | Pull | `PULL_COMPARE` config: `checksum` (xxh128 content hash, default) or `quick` (rsync's size+mtime default). |
 | Push | `--update` flag — rsync skips files whose mtime hasn't changed on the destination. |
 
@@ -193,7 +193,7 @@ The sync root is located in this priority:
 See `sync.conf.example` for the full documented config. Key axes:
 
 | Axis | Options | Default |
-|---|---|---|
+| — | — | — |
 | **Connection** | `REMOTE`, `REMOTE_DIR`, `REMOTE_PORT`, `SSH_KEY`, `SSH_EXTRA_OPTS` | — |
 | **Filtering** | `EXCLUDES` (bash array of rsync globs) | `()` |
 | **Deletion** | `DELETE_MODE` ∈ {`both`, `pull`, `push`, `none`}, `MAX_DELETE`, `DELETE_PUSH_UNSAFE` | `both`, `100`, `false` |
@@ -214,7 +214,7 @@ faithfully mirrors that emptiness onto the other side.
 ### 4.4 Safety Gates
 
 | Gate | Trigger | Exit Code |
-|---|---|---|
+| — | — | — |
 | Config error | Missing required keys, invalid enum values | 1 |
 | Dependency missing | rsync version too old, inotifywait absent | 2 |
 | Safety gate tripped | `MAX_CHANGES_PER_CYCLE`, `MAX_DELETE`, sentinel missing | 3 |
@@ -323,7 +323,7 @@ in this mode.
 Four option sets are built from config:
 
 | Set | Used For | Key Flags |
-|---|---|---|
+| — | — | — |
 | **Common** | Both directions | `--checksum-choice=xxh128`, `--compress` (lz4), `--links`, `--partial-dir`, `--itemize-changes` |
 | **Filter** | Both directions | EXCLUDES translated to `--filter` rules, `--protect-dirs` |
 | **Pull** | Remote→local | NO `--update` (remote wins), `--checksum` (content-based), backup to `.sync/conflicts/<ts>/` on conflict |
@@ -336,7 +336,7 @@ Four option sets are built from config:
 See `issues-discovered-by-qwen.md` for the full catalog.
 
 | # | Issue | Severity | Status |
-|---|---|---|---|
+| — | — | — | — |
 | 1 | Edit-vs-delete conflicts not archived to `.sync/conflicts/` (trash only) | Medium | Known |
 | 4 | Renames fan out into delete+create pairs | Medium | Known |
 | 5 | Stale EXCLUDES silently freeze files | Low | Known |
@@ -356,7 +356,7 @@ directories, no SSH, no network. Uses **bats-core** (≥ 1.10.0).
 ### 10.2 Files
 
 | File | Coverage |
-|---|---|
+| — | — |
 | `test_helper.bash` | Fixture setup, isolated function testing |
 | `unit_functions.bats` | Pure functions: `version_ge`, `validate_sync_path`, `count_itemized_changes`, `shell_quote`, `build_inotify_exclude_regex` |
 | `cli_and_config.bats` | Argument parsing, `validate_config()`, config loading |
@@ -402,7 +402,7 @@ enters the watcher loop. Signal handling:
 ## Appendix A: Exit Codes
 
 | Code | Meaning |
-|---|---|
+| — | –- |
 | `0` | OK |
 | `1` | Config/usage error |
 | `2` | Dependency missing or wrong version |
@@ -413,7 +413,7 @@ enters the watcher loop. Signal handling:
 ## Appendix B: Configuration Quick Reference
 
 | Key | Values | Default |
-|---|---|---|
+| — | — | — |
 | `REMOTE` | `user@host`, SSH alias, or `""` (local) | (required) |
 | `REMOTE_DIR` | Absolute remote path | (required) |
 | `EXCLUDES` | Bash array of rsync globs | `()` |
@@ -426,6 +426,6 @@ enters the watcher loop. Signal handling:
 ## Appendix C: Environment
 
 | Variable | Purpose |
-|---|---|
+| — | — |
 | `LC_ALL` | Forced to `C` for stable sorting |
 | `IFS` | Forced to `$'\n\t'` to prevent whitespace path bugs |

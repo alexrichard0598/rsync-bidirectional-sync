@@ -15,15 +15,13 @@ Continuous **bidirectional** folder sync over SSH, driven by filesystem events
 ## Requirements
 
 | Side | Needs |
-|---|---|
+| — | — |
 | Local | `bash` 4+, `rsync` ≥ 3.1.3 (xxhash + lz4), `ssh`, `inotify-tools`, `flock`, `realpath` |
 | Remote | `rsync` (same features); `inotify-tools` only if `REMOTE_WATCH="inotify"` |
 
-    sudo apt install rsync openssh-client inotify-tools util-linux coreutils
+`sudo apt install rsync openssh-client inotify-tools util-linux coreutils`
 
-Verify:
-
-    rsync --version | grep -A1 -E 'Checksum list|Compress list'
+Verify: `rsync --version | grep -A1 -E 'Checksum list|Compress list'`
 
 ---
 
@@ -95,14 +93,14 @@ Cycles are serialized with `flock`; overlapping triggers are dropped, not queued
 
 The snapshot records each remote path as a 4-field record:
 `path<TAB>size<TAB>xxh128<TAB>mtime`.  This lets deletion detection tell
-"the file is actually gone" apart from "the file is still there but its
+"the file is actually gone" apart from "the file is still there, but its
 content changed" — the comparison is always done on the **path field only**,
 so an ordinary remote edit is never mistaken for a deletion.  The xxh128 hash
 is also used for **move/rename detection**: when a path vanishes from the
-remote but a new path appears with the same content hash, the local side
-recognises the rename and moves the local file rather than deleting and
+remote, but a new path appears with the same content hash, the local side
+recognizes the rename and moves the local file rather than deleting and
 recreating.  The mtime field (epoch seconds from rsync `%T`) records the
-remote modification time for each path.  The tradeoff: computing the hash
+remote modification time for each path.  The trade-off: computing the hash
 means every remote file is fully read once per cycle for the snapshot, on
 top of the read `PULL_COMPARE="checksum"` already performs for the pull
 itself.
@@ -120,7 +118,7 @@ Four guards prevent deletion from escaping:
 See `sync.conf.example` for the full documented list.
 
 | Key | Meaning |
-|---|---|
+| — | — |
 | `REMOTE` | `user@host`, SSH alias, or `""` for local-to-local |
 | `REMOTE_DIR` | absolute path on remote |
 | `EXCLUDES` | bash array of rsync glob patterns |
@@ -150,11 +148,13 @@ for testing or syncing to a mounted drive.
 
 ## Service deployment
 
-    # ~/.config/systemd/user/rsync-monitor.service
-    [Service]
-    ExecStart=%h/bin/rsync-live-mirror.sh
-    Restart=on-failure
+```
+ # ~/.config/systemd/user/rsync-monitor.service
+[Service]
+ExecStart=%h/bin/rsync-live-mirror.sh
+Restart=on-failure
+```
 
 Or with `--once` from cron:
 
-    */15 * * * * /home/me/bin/rsync-live-mirror.sh --dir /home/me/myproject --once --quiet
+` */15 * * * * /home/me/bin/rsync-live-mirror.sh --dir /home/me/myproject --once --quiet`
