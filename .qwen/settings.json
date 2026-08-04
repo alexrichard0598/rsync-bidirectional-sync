@@ -25,6 +25,11 @@
     }
   },
   "tools": {
-    "sandbox": true
+    "sandbox": {
+      "volumes": [
+        "/usr/bin/shellcheck:/usr/bin/shellcheck:ro",
+        "/usr/bin/bats:/usr/bin/bats:ro"
+      ]
+    }
   }
 }
