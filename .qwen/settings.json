@@ -21,9 +21,10 @@
           "Pushing code to the git repo"
         ]
       },
-      "environment": [
-        "Any code changes performed should be commited with Qwen as the co-author"
-      ]
+      "environment": ["Any code changes performed should be commited with Qwen as the co-author"]
     }
+  },
+  "tools": {
+    "sandbox": true
   }
 }
