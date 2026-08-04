@@ -228,7 +228,7 @@ classDiagram
 | `Logging` | Centralized logging facility with severity levels (`error`/`warn`/`info`/`debug`/`ok`) and a `die()` fatal-error path. |
 | `LogRotation` | Rotates the log file once it exceeds a configured size, so it stays bounded. |
 | `State` | Owns the `.sync` state directory and the sentinel files used to detect first-run and track sync progress. |
-| `Snapshot` | Snapshot-based remote-file tracking used to detect and journal deletions, with trash retention. |
+| `Snapshot` | Snapshot-based remote-file tracking used to detect and journal deletions, with trash retention. Each snapshot record carries `path<TAB>size<TAB>xxh128` per remote file (not just a bare path list). Deletion-diff compares paths only (via `cut -f1` before `comm`), so a remote edit (content changed, same path) is never mistaken for a deletion. |
 | `Connection` | Builds SSH options/transport and multiplexed control sockets; verifies remote reachability. |
 | `RsyncOptions` | Builds the `rsync` argument sets (common, filter, pull, push) from the loaded configuration. |
 | `Sync` | Core sync engine: pull/push cycles, change estimation, remote path listing, and deletion propagation. |

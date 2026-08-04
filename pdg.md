@@ -109,46 +109,32 @@ Local-only, never transferred:
 The order of operations is load-bearing. A cycle runs:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Acquire flock(.sync/sync.lock)               │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  Step 1:  Local deletions → remote                             │
-│            ─────────────────                                   │
-│            Read .sync/pending-deletes (inotify journal).       │
-│            For each recorded local deletion, remove the path    │
-│            from the remote. Must happen BEFORE the pull, or the │
-│            pull would re-download a file just deleted locally.  │
-│                                                                 │
-│  Step 2:  Remote deletions → local                             │
-│            ────────────────────                                 │
-│            Diff current remote listing against the last          │
-│            snapshot (.sync/remote-snapshot). Anything gone      │
-│            from the remote is removed locally. Must happen      │
-│            BEFORE the push, or the push would re-upload it.     │
-│                                                                 │
-│  Step 3:  PULL remote → local (no --update)                   │
-│            ──────────────────────────────                       │
-│            Remote overwrites local differences. This is the     │
-│            "remote wins" step. The losing local copy is         │
-│            archived to .sync/conflicts/<ts>/ when               │
-│            CONFLICT_BACKUP=true.                                │
-│                                                                 │
-│  Step 4:  PUSH local → remote (with --update)                 │
-│            ─────────────────────────────────                   │
-│            --update means "never overwrite a newer remote       │
-│            file." This complements Step 3: the pull is the      │
-│            authoritative direction, the push respects remote    │
-│            recency.                                             │
-│                                                                 │
-│  Step 5:  Snapshot remote listing                              │
-│            ──────────────────────                               │
-│            Save current remote ls as .sync/remote-snapshot.     │
-│            Baseline for next cycle's deletion diff.              │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                    Release flock                                │
-└─────────────────────────────────────────────────────────────────┘
+Acquire flock(.sync/sync.lock)
+
+Step 1: Local deletions → remote
+  Read `.sync/pending-deletes` (inotify journal).
+  For each recorded local deletion, remove the path from the remote.
+  Must happen BEFORE the pull, or the pull would re-download a file just deleted locally.
+
+Step 2: Remote deletions → local
+  Diff current remote listing against the last snapshot (`.sync/remote-snapshot`).
+  Anything gone from the remote is removed locally.
+  Must happen BEFORE the push, or the push would re-upload it.
+
+Step 3: PULL remote → local (no `--update`)
+  Remote overwrites local differences. This is the "remote wins" step.
+  The losing local copy is archived to `.sync/conflicts/<ts>/` when `CONFLICT_BACKUP=true`.
+
+Step 4: PUSH local → remote (with `--update`)
+  `--update` means "never overwrite a newer remote file."
+  This complements Step 3: the pull is the authoritative direction,
+  the push respects remote recency.
+
+Step 5: Snapshot remote listing
+  Save current remote `ls` (path+size+hash records) as `.sync/remote-snapshot`.
+  Baseline for next cycle's deletion diff.
+
+Release flock
 ```
 
 ### 3.1 Bidirectional Deletion Mechanics
@@ -162,7 +148,7 @@ files.
 
 | Direction | Mechanism |
 |---|---|
-| **Pull (remote→local)** | NO blanket `--delete`. A blanket `--delete` on pull would remove every file that exists only on the local side — including files the user just CREATED locally and that have not been pushed yet. Remote deletions are detected by comparing the remote file list against a snapshot of the previous cycle (see `apply_remote_deletions` in `sync.sh`), and only genuinely-vanished paths are removed locally. |
+| **Pull (remote→local)** | NO blanket `--delete`. A blanket `--delete` on pull would remove every file that exists only on the local side — including files the user just CREATED locally and that have not been pushed yet. Remote deletions are detected by comparing the remote file list against a snapshot of the previous cycle (see `apply_remote_deletions` in `sync.sh`). The snapshot carries `path<TAB>size<TAB>xxh128` records, not just bare paths. The deletion-diff compares paths only (`cut -f1` each side before `comm -23`), so a remote edit (content changed, same path) is never mistaken for a deletion. Only genuinely-vanished paths are removed locally. |
 | **Push (local→remote)** | NO blanket `--delete`. The inotify watcher journals every `DELETE`/`MOVED_FROM` into `.sync/pending-deletes`. The push removes ONLY those recorded paths. New local files are never mistaken for remote deletions. |
 
 **Journal lifecycle:**
