@@ -1,6 +1,6 @@
 # QWEN.md — rsync-live-mirror
 
-Bash tool for **continuous bidirectional folder sync over SSH** via `rsync` + `inotifywait` + `flock`. Checksums: xxh128. Compression: lz4.
+Bash tool for **continuous bidirectional folder sync over SSH** via `rsync` + `inotifywait` + `flock`. Checksums: xxh128. Compression: lz4. Only load parts of the project at one time, the total size of the project is significantly larger than your context window.
 
 ## Invariants (do not break)
 
