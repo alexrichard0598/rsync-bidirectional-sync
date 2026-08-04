@@ -265,6 +265,27 @@ setup() {
   assert_file_content "$REMOTE_DIR/new-local-file.txt" "brand new"
 }
 
+@test "[snapshot-format] an edited remote file is never mistaken for a deletion" {
+  # Regression guard: the snapshot format carries a content hash
+  # ("path<TAB>size<TAB>hash" per lib/snapshot.sh), so a deletion-diff done on
+  # whole records instead of the path field alone would see the old hash
+  # "vanish" from the current listing on any ordinary remote edit, and delete
+  # the file locally. A changed hash at the same path must be left for the
+  # next pull to resolve as a conflict, never treated as a deletion.
+  write_conf
+  echo v1 > "$REMOTE_DIR/edit-me.txt"
+  run_sync --once --force-first-run
+  # First cycle after baseline establishes the remote snapshot (path+hash of v1).
+  run_sync --once
+  [ -f "$LOCAL_DIR/edit-me.txt" ]
+
+  echo v2 > "$REMOTE_DIR/edit-me.txt"
+  run_sync --once
+  [ "$status" -eq 0 ]
+  [ -f "$LOCAL_DIR/edit-me.txt" ]
+  assert_file_content "$LOCAL_DIR/edit-me.txt" "v2"
+}
+
 # --- symlinks ---------------------------------------------------------------
 
 @test "a symlink is pushed as a symlink, not dereferenced content" {

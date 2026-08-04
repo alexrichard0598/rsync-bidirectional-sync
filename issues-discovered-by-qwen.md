@@ -94,3 +94,15 @@ When `PRESERVE_HARDLINKS="true"`, all members of a hardlink group are expected t
 | 5 | Stale EXCLUDES freeze files | Low | Warn on config load |
 | 10 | Hardlink crossing exclude | Low | Document edge case |
 | 6 | No multi-peer locking | Low | Document limitation |
+
+---
+
+## 13. Snapshot listing now re-reads every remote file for its hash
+
+**Severity:** Low
+
+`list_remote_paths()` (used by both `apply_remote_deletions()` and `update_remote_snapshot()`) now passes `--checksum` so `.sync/remote-snapshot` can carry an xxh128 hash per path, not just the path itself (needed so a remote edit is never mistaken for a deletion, and as groundwork for rename detection). This means every remote file is fully read for its checksum up to twice per pull-enabled cycle, on top of the read `PULL_COMPARE="checksum"` already performs for `do_pull()` itself.
+
+**Current state:** Accepted tradeoff for now; the alternative (comparing whole records without hashes) reintroduces the false-deletion-on-edit bug this format prevents, and comparing by mtime alone was already ruled out for pull as unreliable across hosts (see `rsync_options.sh`).
+
+**Suggested action:** If this cost becomes a problem on large trees, consider caching hashes keyed by `(path, size, mtime)` between cycles instead of rehashing unconditionally, invalidating the cache entry whenever any of the three change.

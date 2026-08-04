@@ -86,6 +86,8 @@ New config key → `README.md` + `sync.conf.example`. Module change → `class-d
 
 Local only, never transferred: `sync.log`, `sync.lock`, `.sync-root`, `pending-deletes`, `remote-snapshot`, `trash/<ts>/`, `conflicts/<ts>/`, `partial/`, `events.fifo`, `inotify.raw`, `inotify.pid`, `ssh-*`. Pruned after `TRASH_KEEP_DAYS`.
 
+`remote-snapshot` format: one `path<TAB>size<TAB>xxh128` record per remote file, not a bare path list. Deletion-diffing compares the path field only, never the whole record — see `lib/snapshot.sh`.
+
 ## Service note
 
 `systemd` template in README. Safety-gate exit `3` → `Restart=on-failure` loops; use `RestartPreventExitStatus=3`.

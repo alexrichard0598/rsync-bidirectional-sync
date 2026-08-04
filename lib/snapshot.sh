@@ -19,6 +19,17 @@
 #    exists locally and was never in the snapshot is simply new, and is left
 #    alone for the push to upload.
 #
+#  Snapshot record format:
+#    Each line is "path<TAB>size<TAB>xxh128" — one remote path per record,
+#    not just a bare path. The size/hash let deletion-detection tell "the
+#    path is genuinely gone" apart from "the path is still there but its
+#    content changed": comparisons against this file MUST be done on the
+#    path field only, never on whole records (see the comment in
+#    apply_remote_deletions() -- comparing whole records would make an
+#    ordinary remote edit look like a deletion, since the hash column would
+#    differ). The extra fields also lay the groundwork for matching a
+#    MOVED_FROM/MOVED_TO pair by content instead of by name.
+#
 #  Journal-driven deletion for the push direction.
 #
 #  Why not a plain --delete on push?
@@ -50,23 +61,38 @@ prune_old_snapshots() {
   log_debug "pruned snapshots older than ${TRASH_KEEP_DAYS}d"
 }
 
-# List the remote tree as newline-separated relative paths, honouring the same
-# excludes as the transfer. rsync's own --list-only is used so the filter rules
-# and symlink handling match exactly what a real transfer would see.
+# Emits one TAB-separated record per remote path: "path<TAB>size<TAB>xxh128".
+# Honours the same excludes as the transfer, since filter rules are shared
+# with build_filter_opts(). --list-only is deliberately NOT used: it ignores
+# --out-format and prints an ls-style long listing ("perms size date time
+# path -> target"), which is fragile to parse for names containing spaces or
+# " -> ". A --dry-run against an empty scratch destination with a custom
+# --out-format prints one record per line instead.
 list_remote_paths() {
   local -a filters=()
   mapfile -t filters < <(build_filter_opts)
 
   # A MINIMAL option set is used on purpose. build_common_opts() adds
-  # --itemize-changes (and possibly --verbose), which changes the output format.
-  # Only what is needed to enumerate the tree the same way a real transfer would
-  # is passed: recursion, symlinks-as-symlinks, and the identical filter rules.
+  # --itemize-changes (and possibly --verbose), which changes the output
+  # format. Only what is needed to enumerate the tree the same way a real
+  # transfer would see is passed: recursion, symlinks-as-symlinks, the
+  # identical filter rules -- plus --checksum, added so the hash column
+  # below is actually populated.
   #
-  # --list-only is NOT used: it ignores --out-format and prints an ls-style
-  # long listing ("perms size date time path -> target"), which is fragile to
-  # parse for names containing spaces or " -> ". A --dry-run against an empty
-  # scratch destination with --out-format='%n' prints one bare path per line.
-  local -a opts=(--recursive --links --dry-run --out-format=%n)
+  # --checksum is REQUIRED, not optional: without it rsync's quick check
+  # (size+mtime) decides what "changed" means and the checksum field is left
+  # blank, since no full-file comparison ever happens. Against the
+  # always-empty scratch destination every path is a "transfer candidate"
+  # either way, so this does not change which paths get listed -- only
+  # whether a real xxh128 gets computed for each one. That computation is a
+  # full read of every remote file, every time this runs (twice per
+  # pull-enabled cycle: apply_remote_deletions() and update_remote_snapshot()),
+  # on top of the read PULL_COMPARE="checksum" already performs for do_pull()
+  # itself. See issues-discovered-by-qwen.md for the tradeoff.
+  local out_format
+  out_format=$'%n\t%l\t%C'
+  local -a opts=(--recursive --links --dry-run --checksum \
+    --checksum-choice=xxh128 --out-format="$out_format")
   [[ $SAFE_LINKS == "true" ]] && opts+=(--safe-links)
   ((RSYNC_TIMEOUT > 0)) && opts+=(--timeout="$RSYNC_TIMEOUT")
   if [[ -n $REMOTE ]]; then
@@ -79,9 +105,19 @@ list_remote_paths() {
   local scratch="$STATE_DIR/.listing-scratch"
 
   # Directories arrive with a trailing slash and the tree root as "./" -- both
-  # are normalised away so the result is a plain sorted list of relative paths.
+  # are normalised away on the PATH FIELD ONLY, leaving the size/hash fields
+  # untouched, so the result is a plain sorted list of
+  # "path<TAB>size<TAB>hash" records. Non-regular entries (directories,
+  # symlinks) get an empty or all-zero hash from rsync; that is fine, since
+  # they are only ever matched by path, never by hash.
   rsync "${opts[@]}" "${filters[@]}" "$(remote_endpoint)" "$scratch/" 2> /dev/null |
-    sed -e 's|/$||' -e '/^\.$/d' -e '/^$/d' |
+    awk -F'\t' 'BEGIN { OFS="\t" }
+      {
+        name = $1
+        sub(/\/$/, "", name)
+        if (name == "" || name == ".") next
+        print name, $2, $3
+      }' |
     LC_ALL=C sort -u
 }
 
@@ -109,8 +145,19 @@ apply_remote_deletions() {
   fi
 
   # Paths that were in the snapshot but are gone from the remote now.
+  #
+  # Compared on the PATH FIELD ONLY, never on whole "path<TAB>size<TAB>hash"
+  # records: a file whose content changed keeps the same path but gets a new
+  # hash, so a whole-record comm(1) would see the old record "vanish" and
+  # delete a file locally on every ordinary remote edit. cut -f1 reduces
+  # each side to bare paths before diffing, which is what keeps this a pure
+  # existence check.
   local -a vanished=()
-  mapfile -t vanished < <(LC_ALL=C comm -23 "$snapshot" "$current")
+  mapfile -t vanished < <(
+    LC_ALL=C comm -23 \
+      <(cut -f1 "$snapshot" | LC_ALL=C sort -u) \
+      <(cut -f1 "$current" | LC_ALL=C sort -u)
+  )
 
   local -a to_delete=()
   local rel
